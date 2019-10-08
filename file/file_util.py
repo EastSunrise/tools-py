@@ -1,9 +1,16 @@
 import os
 import shutil
-from utils.global_log import LOGGER
+
+from utils.config import LOGGER
 
 
 def copy_file(src_path, dst_dir):
+    """
+    复制文件至指定文件夹
+    :param src_path: 源文件
+    :param dst_dir: 目的目录
+    :return:
+    """
     if not os.path.isfile(src_path):
         LOGGER.warning("%s not exist!" % src_path)
         return -1
@@ -20,6 +27,12 @@ def copy_file(src_path, dst_dir):
 
 
 def move_file(src_path, dst_dir):
+    """
+    移动文件至指定文件夹
+    :param src_path: 源文件
+    :param dst_dir: 目的目录
+    :return:
+    """
     if not os.path.isfile(src_path):
         LOGGER.warning("%s not exist!" % src_path)
         return -1
@@ -44,7 +57,3 @@ def create_file(path):
     else:
         LOGGER.info("File exists %s" % path)
         return 0
-
-
-if __name__ == '__main__':
-    copy_file("E:\\Document\\My Kindle Content\\B00HJVC6KU_EBOK\\B00HJVC6KU_EBOK.azw", "E:\\Desktop")

@@ -1,8 +1,8 @@
-import tkinter.filedialog as filedialog
-from utils.global_log import LOGGER
 import os
+import tkinter.filedialog as filedialog
+
 import file.file_util as file_util
-import utils.const as const
+from utils.config import LOGGER
 
 
 class Kindle(object):
