@@ -52,11 +52,11 @@ def generate(domain, user=None, key=None, account=None, service=None, length=16,
             break
     src_str = ''
     src_str += top + '.' + domain[0:2]
-    src_str += '$' + 'wsg' if isBlank(user) else user
-    src_str += '#' + '787' if isBlank(key) else key + '#'
-    if not isBlank(account):
+    src_str += '$' + 'wsg' if is_blank(user) else user
+    src_str += '#' + '787' if is_blank(key) else key + '#'
+    if not is_blank(account):
         src_str += '@' + account
-    if not isBlank(service):
+    if not is_blank(service):
         src_str += '-' + service
     src_str += '%' + str(len(domain))
 
@@ -113,7 +113,7 @@ def start():
             print(generate(domain, user, key, account, service, 6, NUMBER_DICT))
 
 
-def isBlank(string):
+def is_blank(string):
     return string is None or string.strip() == ''
 
 
