@@ -5,33 +5,44 @@
 @Module main
 
 @Author Kingen
-@Date 2019/10/12
+@Date 2019/10/31
 @Version 1.0
 """
-import random
 
 
-def draw_lots():
-    groups = ['A', 'B', 'C', 'D']
-    ones = random.shuffle(groups)
-    shuffle_twos = random.shuffle(groups)
-    left_twos = []
-    right_twos = []
-    for i in range(4):
-        if shuffle_twos[i] in ones[0:2]:
-            right_twos.append(shuffle_twos[i])
+def concatSql(preparing, parameter_str):
+    """
+    拼接sql，占位符为?
+    :param preparing:
+    :param parameter_str:
+    :return:
+    """
+    preparing = preparing.replace('?', '%s')
+    param_list = parameter_str.split(',')
+    params = []
+    for param_str in param_list:
+        param_str = param_str.strip()
+        left_bracket = param_str.find('(')
+        param_type = param_str[left_bracket + 1:param_str.find(')')]
+        param_value = param_str[0:left_bracket]
+        if param_type == 'String':
+            params.append('\'' + param_value + '\'')
+        elif param_type == 'Timestamp':
+            params.append('TO_DATE(\'' + '\')')
         else:
-            left_twos.append(shuffle_twos[i])
-    twos = left_twos + right_twos
-    return [(ones[i] + str(1), twos[i] + str(2)) for i in range(len(groups))]
+            params.append(param_value)
+    return preparing % (tuple(params))
 
 
-def earning(probabilities, odds, values, length):
-    result = 0.0
-    for i in range(length):
-        result += (1 - probabilities[i]) * values[i] - probabilities[i] * values[i] * odds[i]
-    return result
+def readStatement(log_path, key, start=1):
+    with open(log_path, 'r', encoding='UTF-8') as file:
+        while start > 1:
+            file.readline()
+            start -= 1
+        line = file.readline()
+        return line[line.find(key) + len(key):].strip()
 
 
 if __name__ == '__main__':
-    print(earning([0.88, 0.72, 0.39, 0.01], [1.11, 1.18, 2.60, 50.00], [10000, 10000, 10000, 100], 4))
+    sql_path = 'D:/Docs/KXJF/sg-campaign/sg-campaign.service.home_IS_UNDEFINED/logs/sg-campaign-service-sql_2019-11-05.log'
+    print(concatSql(readStatement(sql_path, 'Preparing:', 1), readStatement(sql_path, 'Parameters:', 2)))

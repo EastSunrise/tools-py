@@ -1,0 +1,20 @@
+{% if package is defined and package != '' %}
+    package {{ package }};
+
+{% endif %}
+{% block imports %}
+{% endblock %}
+{% block file_header %}
+    /**
+    * TODO
+    *
+    * @author {{ author }}
+    * @date {{ date }}
+    * @since {{ version }}
+    */
+{% endblock %}
+{% block annotations %}{% endblock %}
+public {% block class %}class {{ ClassName }}{% endblock %} {
+{% block body %}
+{% endblock %}
+}
