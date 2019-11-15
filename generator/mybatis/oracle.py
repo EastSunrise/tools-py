@@ -23,6 +23,7 @@ class Database(Enum):
     数据库枚举
     """
     KXD = CONFIG.parser['db_kxd']
+    lol = 'lol'
 
 
 class OracleHelper:

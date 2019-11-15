@@ -100,6 +100,7 @@ def create_file(content, dst_dir, filename, overwrite=False, encoding='UTF-8'):
     :param filename: 生成的文件名
     :return:
     """
+    print(content)
     exist_flag = os.path.exists(os.path.join(dst_dir, filename))
     from generator.util.config import LOGGER
     if not overwrite and exist_flag:

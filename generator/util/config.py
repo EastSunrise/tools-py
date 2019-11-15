@@ -15,7 +15,7 @@ class Config(object):
 
     def __init__(self):
         self.parser = configparser.ConfigParser()
-        self.parser.read('D:/Docs/PyCharm Projects/Tools/generator/resources/config/config.ini')
+        self.parser.read('D:/Docs/PyCharm Projects/tools-py/generator/resources/config/config.ini', encoding='UTF-8')
 
         self.doc_dir = self.parser['dir']['doc_dir']
         self.db_dir = self.parser['dir']['sql_dir']
@@ -51,7 +51,6 @@ class GlobalLog(object):
         if not os.path.exists('../logs'):
             os.mkdir('../logs')
         # todo 按日期生成日志
-        logging.config.fileConfig(self.log_config)
         return logging.getLogger(name)
 
 

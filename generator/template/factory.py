@@ -8,18 +8,12 @@
 @Date 2019/8/27
 @Version 1.0
 """
-import os
-import tkinter
 from tkinter import filedialog
 
 import xlrd
 
 from generator.mybatis.oracle import Database
-from generator.util.config import CONFIG
 from generator.util.utils import create_file
-
-root = tkinter.Tk()
-root.withdraw()
 
 
 def create_tables_sql(database=Database.KXD) -> list:
@@ -30,15 +24,15 @@ def create_tables_sql(database=Database.KXD) -> list:
     :return: 建表sql列表
     """
     heads = {
-        "field_name": "字段名",
-        "field_desc": "字段描述",
-        "data_type": "数据类型",
+        "field_name": "列名",
+        "field_desc": "注释",
+        "data_type": "类型",
         "is_null": "是否可空",
         "is_primary_key": "主键",
         "is_unique": "唯一索引",
         "is_index": "查询索引"
     }
-    filename = filedialog.askopenfilename(initialdir=CONFIG.doc_dir)
+    filename = filedialog.askopenfilename()
     if not filename:
         return []
     workbook = xlrd.open_workbook(filename)
@@ -82,9 +76,9 @@ def create_tables_sql(database=Database.KXD) -> list:
 
             if values[heads["is_primary_key"]][index] == "Y":
                 primary_keys.append(field_name)
-            if values[heads["is_unique"]][index] == "Y":
+            if values.get(heads["is_unique"], [])[index] == "Y":
                 unique_keys.append(field_name)
-            if values[heads["is_index"]][index] == "Y":
+            if values.get(heads["is_index"], [])[index] == "Y":
                 index_keys.append(field_name)
 
         sql_create = "CREATE TABLE " + table_name + "(\n" + ",\n".join(sql_fields) + ");"
@@ -105,13 +99,69 @@ def create_tables_sql(database=Database.KXD) -> list:
     sql_tables.append("COMMIT;")
 
     # write to file
-    db_dir = CONFIG.db_dir
-    for db_version in os.listdir(db_dir):
-        if db_version.endswith(CONFIG.service_version):
-            db_dir = os.path.join(db_dir, db_version)
-    create_file('\n\n'.join(sql_tables), db_dir, '01_SYS_CREATE_TABLE.sql', CONFIG.overwrite, encoding='GBK')
+    create_file('\n\n'.join(sql_tables), '/', '01_SYS_CREATE_TABLE.sql', False, encoding='UTF-8')
+    return sql_tables
+
+
+def create_tables_sql_mysql(filename, database=Database.lol) -> list:
+    """
+    解析数据表设计的Excel文件，生成对应的建表sql文件
+    :param filename:
+    :param database: 默认为KXD
+    :arg: sheet index
+    :return: 建表sql列表
+    """
+    heads = {
+        "field_name": "列名",
+        "field_desc": "注释",
+        "data_type": "类型",
+        "is_null": "是否可空",
+        "is_primary_key": "主键",
+        "is_unique": "唯一索引",
+        "is_index": "查询索引"
+    }
+    workbook = xlrd.open_workbook(filename)
+    sql_tables = []
+    for sheet_index, sheet in enumerate(workbook.sheets()):
+        sheet_name = sheet.name.lower()
+        if sheet_index < 1 or sheet.nrows < 2:
+            continue
+        table_name = database.name + "." + sheet_name
+        sql_drop = 'drop table if exists ' + table_name + ';'
+
+        # read values
+        values = {}
+        for index in range(sheet.ncols):
+            column = sheet.col_values(index)
+            values[column[0]] = column
+
+        sql_fields = []
+        primary_keys = []
+        for index in range(1, sheet.nrows):
+            field_name = values[heads["field_name"]][index].lower()
+            data_type = values[heads["data_type"]][index].lower()
+
+            field_parts = [field_name, data_type, "not null" if values[heads["is_null"]][index] == "N" else "null", 'comment \'' + values[heads["field_desc"]][index] + '\'']
+            sql_fields.append("\t" + " ".join(field_parts))
+
+            if values[heads["is_primary_key"]][index] == "Y":
+                primary_keys.append(field_name)
+
+        sql_fields.append('constraint ' + sheet_name + '_pk' + ' primary key (' + primary_keys[0] + ')')
+        sql_create = "create table " + table_name + "(\n" + ",\n".join(sql_fields) + ");"
+
+        sql_tables.append("\n".join([sql_drop, sql_create]))
+
+    if len(sql_tables) == 0:
+        return []
+    sql_tables.append("COMMIT;")
+
+    # write to file
+    sql_result = '\n\n'.join(sql_tables)
+    print(sql_result)
+    create_file(sql_result, 'D:/', '01_SYS_CREATE_TABLE.sql', False, encoding='UTF-8')
     return sql_tables
 
 
 if __name__ == '__main__':
-    create_tables_sql()
+    create_tables_sql_mysql('D:/Docs/OneDrive/Development/03 LOL/03 开发设计/24 数据表设计.xlsx')
