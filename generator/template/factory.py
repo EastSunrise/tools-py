@@ -118,7 +118,8 @@ def create_tables_sql_mysql(filename, database=Database.lol) -> list:
         "is_null": "是否可空",
         "is_primary_key": "主键",
         "is_unique": "唯一索引",
-        "is_index": "查询索引"
+        "is_index": "查询索引",
+        "is_auto_increment": "是否自增"
     }
     workbook = xlrd.open_workbook(filename)
     sql_tables = []
@@ -127,7 +128,7 @@ def create_tables_sql_mysql(filename, database=Database.lol) -> list:
         if sheet_index < 1 or sheet.nrows < 2:
             continue
         table_name = database.name + "." + sheet_name
-        sql_drop = 'drop table if exists ' + table_name + ';'
+        sql_drop = 'drop table if exists {0};'.format(table_name)
 
         # read values
         values = {}
@@ -141,14 +142,19 @@ def create_tables_sql_mysql(filename, database=Database.lol) -> list:
             field_name = values[heads["field_name"]][index].lower()
             data_type = values[heads["data_type"]][index].lower()
 
-            field_parts = [field_name, data_type, "not null" if values[heads["is_null"]][index] == "N" else "null", 'comment \'' + values[heads["field_desc"]][index] + '\'']
+            field_parts = [
+                field_name,
+                data_type,
+                'auto_increment' if values[heads["is_auto_increment"]][index] == 'Y' else '',
+                "not null" if values[heads["is_null"]][index] == "N" else "null",
+                'comment \'' + values[heads["field_desc"]][index] + '\'']
             sql_fields.append("\t" + " ".join(field_parts))
 
             if values[heads["is_primary_key"]][index] == "Y":
                 primary_keys.append(field_name)
 
-        sql_fields.append('constraint ' + sheet_name + '_pk' + ' primary key (' + primary_keys[0] + ')')
-        sql_create = "create table " + table_name + "(\n" + ",\n".join(sql_fields) + ");"
+        sql_fields.append('\tprimary key (' + primary_keys[0] + ')')
+        sql_create = "create table " + table_name + "(\n" + ",\n".join(sql_fields) + "\n);"
 
         sql_tables.append("\n".join([sql_drop, sql_create]))
 
