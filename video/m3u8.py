@@ -13,43 +13,23 @@ import os
 import time
 
 import requests
-from bs4 import BeautifulSoup
 from pip._vendor import requests
 from selenium import webdriver
 
 HOST = 'wx.exectas9.cn'
-TS_URL_FORMAT = 'https://v3.szjal.cn/{}'
+TS_URL_FORMAT = 'https://v4.szjal.cn/{}'
 
 
 def chrome(url):
     browser = webdriver.Chrome()
-    browser.get(url)
-    print(browser.page_source)
-    soup = BeautifulSoup(browser.page_source, features='html.parser')
+    return browser.get(url)
 
 
 def get_url(url, headers=None):
     if headers is None:
         headers = {}
     print('Request {}'.format(url))
-    home_page = requests.get(url, headers=headers).text
-    print(home_page)
-    return home_page
-
-
-def get_episode(episode):
-    headers = {
-        # 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3',
-        # 'Accept-Encoding': 'gzip, deflate',
-        # 'Accept-Language': 'zh-CN,zh;q=0.9,zh-TW;q=0.8',
-        # 'Cache-Control': 'max-age=0',
-        # 'Connection': 'keep-alive',
-        # 'Host': HOST,
-        # 'Referer': 'http://{}/index.php/vod/play/id/132794/sid/1/nid/{}.html'.format(HOST, episode + 1),
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/78.0.3904.70 Safari/537.36'
-    }
-    url = 'http://{}/index.php/vod/play/id/132794/sid/1/nid/{}.html'.format(HOST, episode)
-    return get_url(url, headers)
+    return requests.get(url, headers=headers)
 
 
 def download():
@@ -59,6 +39,9 @@ def download():
             ts_urls = []
             filepath = os.path.join(root, file_name)
             name, suffix = os.path.splitext(file_name)
+            if not suffix.endswith('m3u8'):
+                continue
+
             dest_path = os.path.join(root, name + '.ts')
             if os.path.exists(dest_path):
                 print('%s exists. Download next.' % dest_path)
@@ -83,7 +66,7 @@ def download():
                     continue
 
                 print("Downloading from %s to %s" % (ts_url, ts_path))
-                time.sleep(0.1)
+                time.sleep(1)
                 start = datetime.datetime.now().replace(microsecond=0)
                 try:
                     response = requests.get(headers={

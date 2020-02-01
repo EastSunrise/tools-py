@@ -8,7 +8,9 @@
 @Date 2019/10/31
 @Version 1.0
 """
-from video.m3u8 import chrome
+from datetime import datetime
 
 if __name__ == '__main__':
-    chrome('http://wx.exectas9.cn/index.php/vod/detail/id/132791.html')
+    start = datetime(2020, 2, 9)
+    end = datetime(2020, 7, 1)
+    print((end - start).days)

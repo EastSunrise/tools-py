@@ -15,7 +15,7 @@ class Config(object):
 
     def __init__(self):
         self.parser = configparser.ConfigParser()
-        self.parser.read('D:/Docs/PyCharm Projects/tools-py/generator/resources/config/config.ini', encoding='UTF-8')
+        self.parser.read('../resources/config/config.ini', encoding='UTF-8')
 
         self.doc_dir = self.parser['dir']['doc_dir']
         self.db_dir = self.parser['dir']['sql_dir']
@@ -54,13 +54,13 @@ class GlobalLog(object):
         return logging.getLogger(name)
 
 
-LOGGER = GlobalLog('D:/Docs/PyCharm Projects/Tools/generator/resources/config/logger_config.ini').get_logger('root')
+LOGGER = GlobalLog('../resources/config/logger_config.ini').get_logger('root')
 
 Environment.trim_blocks = True
 Environment.lstrip_blocks = True
 
 FILE_ENVIRONMENT = Environment(
-    loader=FileSystemLoader('D:/Docs/PyCharm Projects/Tools/generator/templates/file'))
+    loader=FileSystemLoader('../templates/file'))
 FILE_ENVIRONMENT.filters['convert_with_under2lower_camel'] = utils.convert_with_under2lower_camel
 FILE_ENVIRONMENT.filters['convert_with_under2upper_camel'] = utils.convert_with_under2upper_camel
 FILE_ENVIRONMENT.filters['convert_camel2lower_with_under'] = utils.convert_camel2lower_with_under
@@ -71,4 +71,4 @@ FILE_ENVIRONMENT.trim_blocks = True
 FILE_ENVIRONMENT.lstrip_blocks = True
 
 LIVE_ENVIRONMENT = Environment(
-    loader=FileSystemLoader('D:/Docs/PyCharm Projects/Tools/generator/templates/live'))
+    loader=FileSystemLoader('../templates/live'))

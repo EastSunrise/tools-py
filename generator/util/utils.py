@@ -6,15 +6,15 @@ def convert_with_under2lower_camel(under_str, separator='_') -> str:
     将下划线转换为驼峰字符串，开头小写
     """
     arr = filter(None, under_str.lower().split(separator))
-    camelResult = ''
+    camel_result = ''
     j = 0
     for i in arr:
         if j == 0:
-            camelResult = i
+            camel_result = i
         else:
-            camelResult = camelResult + i[0].upper() + i[1:]
+            camel_result = camel_result + i[0].upper() + i[1:]
         j += 1
-    return camelResult
+    return camel_result
 
 
 def convert_with_under2upper_camel(under_str, separator='_') -> str:
@@ -22,28 +22,28 @@ def convert_with_under2upper_camel(under_str, separator='_') -> str:
     将下划线转换为驼峰字符串，开头大写
     """
     arr = filter(None, under_str.lower().split(separator))
-    CamelResult = ''
+    camel_result = ''
     for i in arr:
-        CamelResult = CamelResult + i[0].upper() + i[1:]
-    return CamelResult
+        camel_result = camel_result + i[0].upper() + i[1:]
+    return camel_result
 
 
-def convert_camel2lower_with_under(camelWord, separator='_') -> str:
+def convert_camel2lower_with_under(camel_word, separator='_') -> str:
     lower_with_under: str = ''
-    for index, char in enumerate(camelWord):
+    for index, char in enumerate(camel_word):
         if index > 0 and char.isupper():
             lower_with_under = lower_with_under + separator
         lower_with_under = lower_with_under + char.lower()
     return lower_with_under
 
 
-def convert_camel2upper_with_under(camelWord, separator='_') -> str:
-    UPPER_WITH_UNDER: str = ''
-    for index, char in enumerate(camelWord):
+def convert_camel2upper_with_under(camel_word, separator='_') -> str:
+    upper_with_under: str = ''
+    for index, char in enumerate(camel_word):
         if index > 0 and char.isupper():
-            UPPER_WITH_UNDER = UPPER_WITH_UNDER + separator
-        UPPER_WITH_UNDER = UPPER_WITH_UNDER + char.upper()
-    return UPPER_WITH_UNDER
+            upper_with_under = upper_with_under + separator
+        upper_with_under = upper_with_under + char.upper()
+    return upper_with_under
 
 
 def lower_first(param) -> str:
@@ -79,15 +79,15 @@ def search(root_dir, filename):
     return False
 
 
-def convert_column2field(COLUMN_NAME: str) -> str:
+def convert_column2field(column_name: str) -> str:
     """
     将数据库字段转换为POJO属性
-    :param COLUMN_NAME:
+    :param column_name:
     :return:
     """
-    if COLUMN_NAME.startswith('IS'):
-        COLUMN_NAME = COLUMN_NAME[2:]
-    return convert_with_under2lower_camel(COLUMN_NAME)
+    if column_name.startswith('IS'):
+        column_name = column_name[2:]
+    return convert_with_under2lower_camel(column_name)
 
 
 def create_file(content, dst_dir, filename, overwrite=False, encoding='UTF-8'):
