@@ -84,7 +84,7 @@ def rename_tv(src_dir, episode_index, season_index=-1, rename_func=None):
     """
     Rename names of the files in tv series.
     :param src_dir:
-    :param episode_index: index starting with.
+    :param episode_index: index starting with, 0 to begin.
     :param season_index: index starting with, default -1 if it only has one season.
     :param rename_func: custom function to rename the file, with the source file name as the argument.
     """
@@ -116,7 +116,3 @@ def rename_tv(src_dir, episode_index, season_index=-1, rename_func=None):
 
 def find_num(src_str: str, index) -> str:
     return re.findall(r'\d+', src_str)[index].zfill(2)
-
-
-if __name__ == '__main__':
-    remove_duplicate_songs('G:/Music')

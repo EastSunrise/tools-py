@@ -1,7 +1,7 @@
 import os
 import tkinter.filedialog as filedialog
 
-import file.file_util as file_util
+from file import operator
 from utils.config import LOGGER
 
 
@@ -18,7 +18,7 @@ class Kindle(object):
         for root, subdir_list, file_name_list in os.walk(self.__content_dir):
             for file_name in file_name_list:
                 if file_name.endswith('.azw') and not os.path.exists(os.path.join(root, self.COPIED_FLAG)):
-                    if file_util.copy_file(os.path.join(root, file_name), dst_dir) != -1:
+                    if operator.copy(os.path.join(root, file_name), dst_dir) != -1:
                         f = open(os.path.join(root, self.COPIED_FLAG), 'w')
                         f.close()
 
