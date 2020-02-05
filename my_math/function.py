@@ -1,13 +1,3 @@
-#!/usr/bin/env python
-# -*- encoding: utf-8 -*-
-"""
-@Description todo
-@Module function
-
-@Author Kingen
-@Date 2019/9/29
-@Version 1.0
-"""
 from abc import abstractmethod
 
 import numpy as np

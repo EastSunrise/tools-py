@@ -1,13 +1,3 @@
-#!/usr/bin/env python
-# -*- encoding: utf-8 -*-
-"""
-@Description 网页下载器
-@Module downloader
-
-@Author Kingen
-@Date 2019/10/14
-@Version 1.0
-"""
 from urllib import request
 from urllib.request import Request, urlopen, ProxyHandler
 
@@ -39,7 +29,8 @@ class Downloader:
             print("error %s: %s" % (url, e))
             return ''
 
-    def crawl_proxy(self, url, proxy):
+    @staticmethod
+    def crawl_proxy(url, proxy):
         """
         通过代理爬取网页
         :param url:
@@ -57,8 +48,3 @@ class Downloader:
         except Exception as e:
             print("error %s: %s" % (url, e))
             return ''
-
-
-if __name__ == '__main__':
-    downloader = Downloader('UTF-8')
-    print(downloader.crawl_proxy('https://www.douyu.com', Downloader.fiddler_proxy))

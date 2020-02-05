@@ -1,13 +1,3 @@
-#!/usr/bin/env python
-# -*- encoding: utf-8 -*-
-"""
-@Description todo
-@Module algorithm
-
-@Author Kingen
-@Date 2019/10/12
-@Version 1.0
-"""
 import random
 
 
@@ -120,7 +110,7 @@ def exp_mode(base, exponent, r):
     大整数幂取模
     :param base: 底数
     :param exponent: 指数
-    :param n: 模
+    :param r: 模
     :return: 结果
     """
     if exponent == 0:
