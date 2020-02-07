@@ -1,10 +1,11 @@
+import hashlib
 import os
 import shutil
 
 
 def copy(src, dst):
     """
-    复制文件至指定文件夹，如果已存在则报错
+    复制文件/文件夹至指定文件夹，如果已存在则报错
     :param src: 源文件
     :param dst: 目的目录
     :return:
@@ -30,7 +31,7 @@ def copy(src, dst):
 
 def move(src, dst):
     """
-    移动文件至指定文件夹
+    移动文件/文件夹至指定文件夹
     :param src: 源文件
     :param dst: 目的目录
     :return:
@@ -52,3 +53,14 @@ def move(src, dst):
         return
 
     raise FileNotFoundError('Not found was the file %s' % src)
+
+
+def get_md5(path):
+    """
+    Get the md5 value of the file.
+    """
+    md5obj = hashlib.md5()
+    with open(path, 'rb') as file:
+        md5obj.update(file.read())
+        md5value = md5obj.hexdigest()
+        return md5value
