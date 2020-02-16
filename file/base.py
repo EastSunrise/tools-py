@@ -1,5 +1,6 @@
 import hashlib
 import os
+import re
 import shutil
 
 
@@ -64,3 +65,23 @@ def get_md5(path):
         md5obj.update(file.read())
         md5value = md5obj.hexdigest()
         return md5value
+
+
+# not match: 0-9, blank, A-Z, a-z, 、, -, ，, Chinese, Korean, Japanese
+MUSIC_PATTERN = r'[^\d\sA-Za-z.\-、，\u4e00-\u9fa5\uAC00-\uD7A3\u0800-\u4e00]+'
+
+
+def find_irregular(src_dir, pattern):
+    """
+    Find unmatched files under the directory by the regular expression
+    :param src_dir source directory
+    :param pattern the pattern of the regular expression
+    :return:
+    """
+    pat = re.compile(pattern)
+    for filename in os.listdir(src_dir):
+        extras = pat.findall(filename)
+        if len(extras) > 0:
+            print(filename)
+            for extra in extras:
+                print(extra)

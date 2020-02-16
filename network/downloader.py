@@ -1,5 +1,20 @@
+import os
 from urllib import request
 from urllib.request import Request, urlopen, ProxyHandler
+
+
+def download_image(url, dst_dir, dst_name='example', fmt='.jpg'):
+    header = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) '
+                      'Chrome/66.0.3359.139 Safari/537.36'}
+    response = urlopen(Request(url, headers=header))
+    if response.getcode() == 200:
+        dst_path = os.path.join(dst_dir, dst_name + fmt)
+        with open(dst_path, "wb") as f:
+            print('Downloading to {} from {}'.format(dst_path, url))
+            f.write(response.read())
+        return dst_path
+    return False
 
 
 class Downloader:
@@ -17,7 +32,7 @@ class Downloader:
         return empty string if response raise an HTTPError (not found, 500...)
         """
         try:
-            print("retrieving url... %s" % url)
+            print("Retrieving url... %s" % url)
             req = Request(url, headers=Downloader.header)
 
             response = urlopen(req, timeout=1)

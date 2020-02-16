@@ -1,5 +1,15 @@
+import base64
 import os
 import re
+
+
+def transfer_thunder(thunder_url):
+    """
+    Transfer the url of thunder to format of 'http'
+    :param thunder_url:
+    :return:
+    """
+    return base64.b64decode(thunder_url.lstrip('thunder://')).decode('GB2312').strip('AAZZ')
 
 
 def separate_srt(src: str):
@@ -106,9 +116,9 @@ class MusicFile(TypeFile):
         super().__init__(src_dir, name, ['.mp3', '.flac', '.wav'])
 
 
-def rename_episode_default(episode_name):
+def rename_episode_default(episode_name, season_name=''):
     base_name, ext = os.path.splitext(episode_name)
-    return 'E' + re.findall(r'\d+', base_name)[0].zfill(2) + ext
+    return season_name + ' ' + 'E' + re.findall(r'\d+', episode_name)[0].zfill(2) + ext
 
 
 def rename_season_default(season_name):
@@ -137,10 +147,10 @@ def rename_tv(src_dir, rename_episode=rename_episode_default, rename_season=rena
             dst_season_name = rename_season(filename)
             for episode_name in os.listdir(filepath):
                 episode_path = os.path.join(filepath, episode_name)
-                dst_episode_name = rename_episode(episode_name)
+                dst_episode_name = rename_episode(episode_name, dst_season_name)
                 dst_episode_path = os.path.join(filepath, dst_episode_name)
                 print("Rename from {} to {}.".format(episode_path, dst_episode_path))
                 os.rename(episode_path, dst_episode_path)
-            dst_season_path = os.path.join(filepath, dst_season_name)
+            dst_season_path = os.path.join(src_dir, dst_season_name)
             print("Rename directory from {} to {}.".format(filepath, dst_season_path))
             os.rename(filepath, dst_season_path)
