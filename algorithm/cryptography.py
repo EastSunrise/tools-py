@@ -3,10 +3,10 @@ import random
 
 class RSA:
     """
-    RSA加密算法
+    RSA
     """
 
-    def __init__(self) -> None:
+    def __init__(self):
         p, q = get_prime(), get_prime()
         while p == q:
             q = get_prime()
@@ -26,8 +26,8 @@ class RSA:
 
 def miller_rabin(num):
     """
-    判断大整数是否为质数
-    :param num: 大整数
+    If a big number is prime.
+    :param num
     :return:
     """
     s = num - 1
@@ -52,16 +52,15 @@ def miller_rabin(num):
 
 def is_prime(num):
     """
-    判断是否是质数
+    If a number is prime
     :param num:
     :return:
     """
-    # 排除0,1和负数
+    # exclude 0, 1 and negative numbers
     if num < 2:
         return False
 
-    # 创建小素数的列表,可以大幅加快速度
-    # 如果是小素数,那么直接返回true
+    # Efficiency will increase with a list of small prime numbers
     small_primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101,
                     103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163, 167, 173, 179, 181, 191, 193, 197, 199,
                     211, 223, 227, 229, 233, 239, 241, 251, 257, 263, 269, 271, 277, 281, 283, 293, 307, 311, 313, 317,
@@ -74,28 +73,30 @@ def is_prime(num):
     if num in small_primes:
         return True
 
-    # 如果大数是这些小素数的倍数,那么就是合数,返回false
     for prime in small_primes:
         if num % prime == 0:
             return False
 
-    # 如果这样没有分辨出来,就一定是大整数,那么就调用rabin算法
     return miller_rabin(num)
 
 
-# 得到大整数,默认位数为1024
-def get_prime(key_size=1024):
+def get_prime(length=1024):
+    """
+    Get a big prime number, defaults to 1024 digits.
+    :param length:
+    :return:
+    """
     while True:
-        num = random.randrange(2 ** (key_size - 1), 2 ** key_size)
+        num = random.randrange(2 ** (length - 1), 2 ** length)
         if is_prime(num):
             return num
 
 
 def ext_euclidean(a, b):
     """
-    扩展欧几里得算法，a和b互质
-    ax+by=gcd
-    :return 一组解x, y和gcd
+    Extended Euclidean Algorithm.
+    Solve the equation 'ax+by=gcd', a is prime to b.
+    :return one solution: x, y and gcd
     """
     if b == 0:
         return 1, 0, a
@@ -105,29 +106,20 @@ def ext_euclidean(a, b):
         return x, y, q
 
 
-def exp_mode(base, exponent, r):
+def exp_mode(base, exponent, modulo):
     """
-    大整数幂取模
-    :param base: 底数
-    :param exponent: 指数
-    :param r: 模
-    :return: 结果
+    Modulo for big integers
+    :param base
+    :param exponent
+    :param modulo
+    :return:
     """
     if exponent == 0:
-        return 1 % r
+        return 1 % modulo
     if exponent == 1:
-        return base % r
-    temp = exp_mode(base, (exponent / 2), r)
-    temp = temp * temp % r
+        return base % modulo
+    temp = exp_mode(base, (exponent / 2), modulo)
+    temp = temp * temp % modulo
     if exponent & 1 == 1:
-        temp = temp * base % r
+        temp = temp * base % modulo
     return temp
-
-
-if __name__ == '__main__':
-    src = 89
-    rsa = RSA()
-    mi = rsa.encrypt(src)
-    print(mi)
-    jie = rsa.decrypt(mi)
-    print(jie)

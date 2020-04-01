@@ -1,26 +1,24 @@
-# config.py
 import logging
 import logging.config
 import os
 
+import yaml
 
-class GlobalLog(object):
+
+def get_logger(name):
     """
-    日志全局配置
+    Get a common logger named by the module name.
+    :param name: module name
+    :return:
     """
-
-    def __init__(self, config_file):
-        """
-        :param config_file: 配置文件
-        """
-        self.log_config = config_file
-
-    def get_logger(self, name=None):
-        if not os.path.exists('../logs'):
-            os.mkdir('../logs')
-        # todo 按日期生成日志
-        logging.config.fileConfig(self.log_config)
-        return logging.getLogger(name)
+    if not os.path.exists('../logs'):
+        os.mkdir('../logs')
+    with open('logging.yml', 'r') as file:
+        config = yaml.load(file.read(), Loader=yaml.Loader)
+    logging.config.dictConfig(config)
+    return logging.getLogger(name)
 
 
-LOGGER = GlobalLog('../resources/config/logger_config.ini').get_logger('root')
+if __name__ == '__main__':
+    logger = get_logger(__name__)
+    logger.info('main')

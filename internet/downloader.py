@@ -1,9 +1,18 @@
+import base64
 import os
 from urllib import request
 from urllib.request import Request, urlopen, ProxyHandler
 
 
 def download_image(url, dst_dir, dst_name='example', fmt='.jpg'):
+    """
+    Download an image from the specific url to target directory.
+    :param url:
+    :param dst_dir:
+    :param dst_name:
+    :param fmt:
+    :return:
+    """
     header = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) '
                       'Chrome/66.0.3359.139 Safari/537.36'}
@@ -15,6 +24,15 @@ def download_image(url, dst_dir, dst_name='example', fmt='.jpg'):
             f.write(response.read())
         return dst_path
     return False
+
+
+def transfer_thunder(thunder_url):
+    """
+    Transfer the url of thunder to format of 'http'
+    :param thunder_url:
+    :return:
+    """
+    return base64.b64decode(thunder_url.lstrip('thunder://')).decode('GB2312').strip('AAZZ')
 
 
 class Downloader:

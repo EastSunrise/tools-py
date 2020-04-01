@@ -125,5 +125,8 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# idea
 .gitignore
 .idea/*
+/internet/kugou/
+/main.py
