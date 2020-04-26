@@ -126,7 +126,15 @@ dmypy.json
 .pyre/
 
 # idea
-.gitignore
 .idea/*
-/internet/kugou/
-/main.py
+/file/kugou/
+/private/main.py
+
+# vscode
+.vscode/*
+
+# data
+*.json
+
+# private
+/private/
