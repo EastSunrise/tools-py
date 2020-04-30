@@ -1,3 +1,7 @@
+""" Some cryptography algorithms
+
+@Author Kingen
+"""
 import random
 
 

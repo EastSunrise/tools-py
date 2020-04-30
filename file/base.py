@@ -1,3 +1,4 @@
+import hashlib
 import os
 import shutil
 
@@ -79,3 +80,14 @@ def move(src, dst_dir):
         return
 
     raise FileNotFoundError('Not found was the file %s' % src)
+
+
+def get_md5(path):
+    """
+    Get the md5 value of the file.
+    """
+    md5obj = hashlib.md5()
+    with open(path, 'rb') as fp:
+        md5obj.update(fp.read())
+        md5value = md5obj.hexdigest()
+        return md5value
