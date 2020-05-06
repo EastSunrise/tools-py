@@ -93,7 +93,8 @@ class VideoSearch(metaclass=abc.ABCMeta):
             r['href'] = self._get_full_url(r['href'])
         return urls, excluded_resources
 
-    def _parse_resource_name(self, name, subtype):
+    @staticmethod
+    def _parse_resource_name(name, subtype):
         invalid_str = ['国语', '中字', '高清', 'HD', '1280', 'DVD', '《', '》', '720p', '[', ']']
         for s in invalid_str:
             name = name.replace(s, '')
@@ -103,7 +104,7 @@ class VideoSearch(metaclass=abc.ABCMeta):
         else:
             season = re.search(r'第.{1,2}季', name)
             if season:
-                season_str = name[season.start():season.end()]
+                season_str = season[0]
                 name = name.replace(season_str, '')
             else:
                 season_str = ''
