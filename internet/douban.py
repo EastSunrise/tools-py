@@ -140,10 +140,13 @@ class Douban:
         if '上映日期:' in spans:
             subject['subtype'] = 'movie'
             subject['pubdates'] = [span['content'] for span in spans['上映日期:'].find_all_next('span', property='v:initialReleaseDate')]
-            span = spans['片长:'].find_next('span', property='v:runtime')
-            subject['durations'] = [span.get_text().strip()]
-            if not isinstance(span.next_sibling, bs4.Tag):
-                subject['durations'] += [d.strip() for d in str(span.next_sibling).strip('/').split('/')]
+            if '片长:' in spans:
+                span = spans['片长:'].find_next('span', property='v:runtime')
+                subject['durations'] = [span.get_text().strip()]
+                if not isinstance(span.next_sibling, bs4.Tag):
+                    subject['durations'] += [d.strip() for d in str(span.next_sibling).strip('/').split('/')]
+            else:
+                subject['durations'] = []
             subject['current_season'] = None
             subject['seasons_count'] = None
             subject['episodes_count'] = None
@@ -161,13 +164,13 @@ class Douban:
                     subject['current_season'] = next_sibling.find('option', selected='selected').get_text().strip()
                     subject['seasons_count'] = len(next_sibling.find_all('option'))
                 else:
-                    logger.error('Info of seasons is not specified.')
+                    logger.error('Info of seasons is not specified')
                     raise ValueError
             else:
                 subject['current_season'] = None
                 subject['seasons_count'] = None
         else:
-            logger.error('Subtype is not specified.')
+            logger.error('Subtype is not specified')
             raise ValueError
 
         if '官方网站:' in spans:

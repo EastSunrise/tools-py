@@ -13,6 +13,7 @@ from urllib import parse, error
 from urllib.request import Request, urlopen
 
 from bs4 import BeautifulSoup
+from selenium import webdriver
 from win32com.client import Dispatch
 
 from utils import config
@@ -24,7 +25,7 @@ base_headers = {
 }
 
 
-def do_request(req: Request, pause=0.0, timeout=10):
+def do_request(req: Request, pause=0.0, timeout=10, retry=3):
     """
     do request
     :param req: an instance of request.Request
@@ -35,20 +36,23 @@ def do_request(req: Request, pause=0.0, timeout=10):
     logger.info('%s from %s' % (req.method, req.full_url))
     if req.get_method().upper() == 'POST' and req.data is not None:
         logger.info('Query: ' + parse.unquote(req.data.decode('utf=8')))
-    timeout_count = 0
+    timeout_count = reset_count = 0
     while True:
         try:
             with urlopen(req, timeout=timeout) as r:
                 return r.read().decode('utf-8')
         except socket.timeout as e:
             logger.error('Timeout!')
-            if timeout_count >= 3:
+            if timeout_count >= retry:
                 raise e
             timeout_count += 1
             logger.info('Retry...')
             time.sleep(timeout)
         except error.HTTPError as e:
             logger.error('Error code: %d, %s' % (e.getcode(), e.msg))
+            raise e
+        except ConnectionResetError as e:
+            logger.error(e)
             raise e
 
 
@@ -69,7 +73,7 @@ def pre_download(url, pause=0.0, timeout=30, retry=3):
             with urlopen(req, timeout=timeout) as r:
                 size = r.getheader('Content-Length')
                 if size is None:
-                    logger.error('Unknown Content Length.')
+                    logger.error('Unknown Content Length')
                     return 1, 'Unknown Content Length', None
                 else:
                     return 200, 'OK', {'size': int(size)}
@@ -129,6 +133,17 @@ def get_soup(req: Request, pause=0.0, timeout=10) -> BeautifulSoup:
     Request and return a soup of the page
     """
     return BeautifulSoup(do_request(req, pause, timeout), 'html.parser')
+
+
+options = webdriver.ChromeOptions()
+options.headless = True
+chrome = webdriver.Chrome(options=options, executable_path='chromedriver 81.0.4044.138.exe')
+
+
+def browser(url):
+    logger.info('Get from %s' % url)
+    chrome.get(url)
+    return chrome.page_source
 
 
 class Downloader:
@@ -281,20 +296,15 @@ class Thunder:
     def client(self):
         return self.__client
 
-    def add_task(self, url, filename='', path='', comments='', refer_url='', start_mode=-1, only_from_origin=0, origin_thread_count=-1):
+    def add_task(self, url, filename, refer_url=''):
         """
         add add_task task
         :param filename: basename of target file. It will be completed automatically if an extension isn't included.
             This is valid only when popping up a add_task panel.
         :param refer_url: netloc referred to
-        :param path: directory path to save the file todo following args are invalid
-        :param comments:
-        :param start_mode: 0: manually, 1: immediately, -1 by default: decided by Thunder
-        :param only_from_origin: 1: only from origin, 0 by default: from multi resources
-        :param origin_thread_count: 1-10, -1 by default: decided by Thunder
         :return:
         """
-        self.__client.addTask(url, filename, path, comments, refer_url, start_mode, only_from_origin, origin_thread_count)
+        self.__client.addTask(url, filename, '', '', refer_url, -1, 0, -1)
 
     def commit_tasks(self):
         """

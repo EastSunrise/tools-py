@@ -1,5 +1,7 @@
 """ Search and handle resources
 
+Priority of the site is decided by the order the subclass is written.
+
 @Author Kingen
 @Date 2020/4/25
 """
@@ -12,7 +14,7 @@ from urllib.request import Request
 
 import bs4
 
-from internet.spider import get_soup
+from internet.spider import get_soup, browser
 from utils import config
 from utils.common import num2chinese
 
@@ -27,8 +29,10 @@ class VideoSearch(metaclass=abc.ABCMeta):
         self._scheme = scheme
         self._netloc = netloc
         self._headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+                          'Chrome/80.0.3987.132 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;'
+                      'q=0.8,application/signed-exchange;v=b3;q=0.9',
             'Accept-Lanaguage': 'zh-CN,zh;q=0.9,zh-TW;q=0.8',
         }
         if headers is not None:
@@ -50,22 +54,20 @@ class VideoSearch(metaclass=abc.ABCMeta):
         1. search resources by a specific key
         2. filter resources by comparing names of resources with the key
         3. access to pages of resources to get specific urls
-        :return: {url: remark, ...}, [{'name': excluded_resource_name, 'href': full_url},...]
+        :return: {url: remark, ...}
         """
         keys, matches = self._get_possible_titles(subject)
-        exact_resources, excluded_resources, urls = [], [], {}
+        exact_resources, urls = [], {}
         for key in keys:
-            while True:
-                try:
-                    self._next_access(15)
-                    soup = get_soup(self._search_req(key, subtype=subject['subtype']), timeout=self._timeout)
-                    resources = self._find_resources(soup, subtype=subject['subtype'])
-                    break
-                except socket.timeout:
-                    self._next_access(10)
-                    pass
+            try:
+                self._next_access(15)
+                soup = get_soup(self._search_req(key, subtype=subject['subtype']), timeout=self._timeout)
+                resources = self._find_resources(soup, subtype=subject['subtype'])
+            except socket.timeout:
+                continue
+            except ConnectionResetError:
+                continue
             if len(resources) == 0:
-                logger.info('No resources found.')
                 continue
 
             # filter resources, keeping those matches key exactly or most similarly
@@ -74,28 +76,30 @@ class VideoSearch(metaclass=abc.ABCMeta):
                 if len(matches & names) > 0:
                     exact_resources.append(resource)
                 else:
-                    logger.info('Excluded: %s' % resource['name'])
-                    excluded_resources.append(resource)
+                    logger.info('Excluded resource: %s, %s' % (resource['name'], self._get_full_url(resource['href'])))
 
             # get download urls from the resources
             for resource in exact_resources:
                 try:
-                    read_soup = get_soup(self._resource_req(self._get_full_url(resource['href']), self._search_req(key, subtype=subject['subtype']).full_url))
-                    links = self._find_downs(read_soup)
+                    links = self._parse_read_page(resource['href'], key, subject['subtype'])
                 except socket.timeout:
+                    continue
+                except ConnectionResetError:
                     continue
                 if len(links) > 0:
                     urls.update(links)
                 else:
-                    logger.info('No links found for %s' % resource['name'])
-                    excluded_resources.append(resource)
-        for r in excluded_resources:
-            r['href'] = self._get_full_url(r['href'])
-        return urls, excluded_resources
+                    logger.info('No links resource: %s' % resource['name'])
+        return urls
+
+    def _parse_read_page(self, href, key, subtype):
+        read_soup = get_soup(self._resource_req(self._get_full_url(href), self._search_req(key, subtype=subtype).full_url))
+        return self._find_downs(read_soup)
 
     @staticmethod
     def _parse_resource_name(name, subtype):
-        invalid_str = ['国语', '中字', '高清', 'HD', '1280', 'DVD', '《', '》', '720p', '[', ']']
+        invalid_str = ['国语', '中字', '高清', 'HD', 'BD', '1280', 'DVD', '《', '》', '720p', '[', ']',
+                       '1024', '576', '*', '中英字幕', '中英双字']
         for s in invalid_str:
             name = name.replace(s, '')
         # name = re.sub(r'\[.*\]', '', name)
@@ -179,7 +183,8 @@ class VideoSearch(metaclass=abc.ABCMeta):
         if href.startswith('http'):
             href = parse.splithost(parse.splittype(href)[1])[1]
         if href.startswith('/'):
-            return '%s://%s%s' % (self._scheme, self._netloc, href) + ('' if not query_params else ('?' + parse.urlencode(query_params)))
+            return '%s://%s%s' % (self._scheme, self._netloc, href) + \
+                   ('' if not query_params else ('?' + parse.urlencode(query_params)))
         raise error.URLError('Unknown href: %s' % href)
 
     def _next_access(self, interval=0):
@@ -193,41 +198,6 @@ class VideoSearch(metaclass=abc.ABCMeta):
             logger.info('Waiting for %.2fs' % waiting)
             time.sleep(waiting)
         self._last_access = time.time()
-
-
-class VideoSearchXLC(VideoSearch):
-
-    def __init__(self) -> None:
-        import warnings
-        warnings.warn("Not filter by subtype.", DeprecationWarning)
-        super().__init__('XLC', 'www.xunleicang.in', timeout=20, headers={
-            'authority': 'www.xunleicang.in',
-            'scheme': 'https'
-        })
-
-    def _search_req(self, key, **kwargs) -> Request:
-        form_data = parse.urlencode({'wd': key}).encode(encoding='utf-8')
-        search_req = request.Request(self._get_full_url('/vod-search'), data=form_data, headers=self._headers, method='POST')
-        search_req.add_header('Origin', self.home)
-        search_req.add_header('Referer', self.home)
-        return search_req
-
-    def _find_resources(self, soup, subtype):
-        resources = []
-        for mov in soup.find_all('div', {'class': 'movList4'}):
-            mov_a = mov.ul.li.h3.a
-            resources.append({
-                'name': mov_a.get_text().strip(),
-                'href': mov_a['href']
-            })
-        return resources
-
-    def _find_downs(self, soup):
-        links = {}
-        for down_ul in soup.find_all('ul', {'class': 'down-list'}):
-            down_a = down_ul.li.div.span.a
-            links[down_a['href']] = down_a.get_text().strip()
-        return links
 
 
 class VideoSearch80s(VideoSearch):
@@ -271,163 +241,10 @@ class VideoSearch80s(VideoSearch):
         super()._next_access(10)
 
 
-class VideoSearchZhandi(VideoSearch):
-
-    def __init__(self) -> None:
-        super().__init__('Zhandi', 'www.zhandi.cc', timeout=20, headers={
-            'Host': 'www.zhandi.cc'
-        })
-
-    def _search_req(self, key, **kwargs) -> Request:
-        form_data = parse.urlencode({'wd': key}).encode(encoding='utf-8')
-        search_req = request.Request(self._get_full_url('/index.php', s='vod-search'), data=form_data, headers=self._headers, method='POST')
-        search_req.add_header('Origin', 'https://www.zhandi.cc')
-        search_req.add_header('Referer', 'https://www.zhandi.cc/')
-        return search_req
-
-    def _find_resources(self, soup, subtype) -> list:
-        resources = []
-        for mov in soup.find('ul', {'id': 'contents'}).find_all('li'):
-            mov_a = mov.h5.a
-            if any(t in mov_a['href'] for t in ['Dz', 'Xj', 'Aq', 'Kh', 'Kb', 'War', 'Jq']):
-                t = 'movie'
-            elif any(t in mov_a['href'] for t in ['Gc', 'Gt', 'Om', 'Rh', 'Hw', 'Zy']):
-                t = 'tv'
-            else:
-                t = 'unknown'
-            if subtype == t:
-                resources.append({
-                    'name': mov_a.get_text().strip(),
-                    'href': mov_a['href']
-                })
-        return resources
-
-    def _find_downs(self, soup):
-        links = {}
-        down_ul = soup.find('ul', id='downul')
-        if down_ul is None:
-            return {}
-        for down_li in down_ul.find_all('li'):
-            down_a = down_li.p.a
-            links[down_a['href']] = down_a.get_text().strip()
-        return links
-
-
-class VideoSearchHhyyk(VideoSearch):
-
-    def __init__(self) -> None:
-        import warnings
-        warnings.warn('Not filter by subtype.', DeprecationWarning)
-        super().__init__('Hhyyk', 'www.hhyyk.com', timeout=20, scheme='http', headers={
-            'Host': 'www.hhyyk.com'
-        })
-
-    def _search_req(self, key, **kwargs) -> Request:
-        search_req = request.Request(self._get_full_url('/search', keyword=key), headers=self._headers, method='GET')
-        search_req.add_header('Referer', 'http://www.hhyyk.com/')
-        search_req.add_header('Host', self._netloc)
-        return search_req
-
-    def _find_resources(self, soup, subtype) -> list:
-        resources = []
-        tbody = soup.find('tbody')
-        if tbody is not None:
-            for tr in tbody.find_all('tr')[1:]:
-                mov_a = tr.td.a
-                resources.append({
-                    'name': mov_a.get_text().strip(),
-                    'href': mov_a['href']
-                })
-        return resources
-
-    def _find_downs(self, soup):
-        links = {}
-        for p in soup.find_all('p', class_='detail-text-p'):
-            down_a = p.span.a
-            links[down_a['href']] = down_a.get_text().strip()
-        return links
-
-
-class VideoSearchPiaohua(VideoSearch):
-
-    def __init__(self):
-        super().__init__('Piaohua', 'www.piaohua.com', timeout=20, headers={
-            'authority': 'www.piaohua.com',
-            'scheme': 'https'
-        })
-
-    def _search_req(self, key, **kwargs) -> Request:
-        search_req = request.Request(self._get_full_url('/plus/search.php', keyword=key), headers=self._headers, method='GET')
-        search_req.add_header('Referer', self.home)
-        return search_req
-
-    def _find_resources(self, soup, subtype) -> list:
-        resources = []
-        for li in soup.find('ul', class_='ul-imgtxt2 row').find_all('li'):
-            mov_a = li.find('h3').a
-            mov_a.em.decompose()
-            if any(t in mov_a['href'] for t in ['dongzuo', 'xiju', 'aiqing', 'kehuan', 'juqing', 'xuannian', 'zhangzheng', 'kongbu', 'zainan']):
-                t = 'movie'
-            elif any(t in mov_a['href'] for t in ['lianxuju', 'zongyijiemu']):
-                t = 'tv'
-            else:
-                t = 'unknown'
-            if subtype == t:
-                resources.append({
-                    'name': mov_a.get_text().strip(),
-                    'href': mov_a['href']
-                })
-        return resources
-
-    def _find_downs(self, soup):
-        links = {}
-        bot = soup.find('div', class_='m-text1').find('div', class_='bot')
-        if bot is None:
-            return {}
-        for down_a in bot.find_all('a'):
-            href = down_a['href']
-            if href == 'javascript: void(0);':
-                href = down_a.get_text().strip()
-            links[href] = down_a.get_text().strip()
-        return links
-
-
-class SrtSearchSsk(VideoSearch):
-    """
-    Search srt resources from <https://sskzmz.com/>.
-    """
-
-    def __init__(self) -> None:
-        import warnings
-        warnings.warn('Not filter by subtype.', DeprecationWarning)
-        super().__init__('Ssk', 'sskzmz.com', timeout=20, headers={
-            'Host': 'sskzmz.com'
-        })
-
-    def _search_req(self, key, **kwargs) -> Request:
-        search_req = request.Request(self._get_full_url('/index/search', tab=key), headers=self._headers, method='GET')
-        search_req.add_header('Referer', 'https://sskzmz.com/')
-        return search_req
-
-    def _find_resources(self, soup, subtype) -> list:
-        resources = []
-        for mov in soup.find('div', {'class': 'row movie'}).find_all('div'):
-            mov_a = mov.a
-            resources.append({
-                'name': mov_a.get_text().strip(),
-                'href': mov_a['href']
-            })
-        return resources
-
-    def _find_downs(self, soup):
-        links = {}
-        for tr in soup.find('tbody').find_all('tr')[1:]:
-            tds = tr.find_all('td')
-            links[tds[0].get_text().strip()] = tds[3].a['href']
-        return links
-
-
 class VideoSearchXl720(VideoSearch):
+    """
+    Main links: ed2k, little: magnet/pan
+    """
 
     def __init__(self) -> None:
         super().__init__('Xl720', 'www.xl720.com', headers={
@@ -468,6 +285,44 @@ class VideoSearchXl720(VideoSearch):
         return super()._get_full_url(href, **query_params).replace('%20', '+')
 
 
+class VideoSearchXLC(VideoSearch):
+    """
+    Main links: pan/ed2k/magnet/torrent/ftp
+    """
+
+    def __init__(self) -> None:
+        import warnings
+        warnings.warn("Not filter by subtype.", DeprecationWarning)
+        super().__init__('XLC', 'www.xunleicang.in', timeout=20, headers={
+            'authority': 'www.xunleicang.in',
+            'scheme': 'https'
+        })
+
+    def _search_req(self, key, **kwargs) -> Request:
+        form_data = parse.urlencode({'wd': key}).encode(encoding='utf-8')
+        search_req = request.Request(self._get_full_url('/vod-search'), data=form_data, headers=self._headers, method='POST')
+        search_req.add_header('Origin', self.home)
+        search_req.add_header('Referer', self.home)
+        return search_req
+
+    def _find_resources(self, soup, subtype):
+        resources = []
+        for mov in soup.find_all('div', {'class': 'movList4'}):
+            mov_a = mov.ul.li.h3.a
+            resources.append({
+                'name': mov_a.get_text().strip(),
+                'href': mov_a['href']
+            })
+        return resources
+
+    def _find_downs(self, soup):
+        links = {}
+        for down_ul in soup.find_all('ul', {'class': 'down-list'}):
+            down_a = down_ul.li.div.span.a
+            links[down_a['href']] = down_a.get_text().strip()
+        return links
+
+
 class VideoSearchAxj(VideoSearch):
 
     def __init__(self) -> None:
@@ -497,11 +352,176 @@ class VideoSearchAxj(VideoSearch):
             })
         return resources
 
+    def _parse_read_page(self, href, key, subtype):
+        soup = bs4.BeautifulSoup(browser(self._get_full_url(href)), 'html.parser')
+        return self._find_downs(soup)
+
     def _find_downs(self, soup) -> dict:
         links = {}
         for a in soup.find('div', class_='editor_content').find_all('a'):
-            remark = a.get_text().strip()
-            if a['href'].startswith('https://pan.baidu.com'):
-                remark = str(a.next_sibling).strip()
-            links[a['href']] = remark
+            links[a['href']] = a.get_text().strip()
+        return links
+
+
+class VideoSearchZhandi(VideoSearch):
+    """
+    Main links: ftp/ed2k
+    """
+
+    def __init__(self) -> None:
+        super().__init__('Zhandi', 'www.zhandi.cc', timeout=20, headers={
+            'Host': 'www.zhandi.cc'
+        })
+
+    def _search_req(self, key, **kwargs) -> Request:
+        form_data = parse.urlencode({'wd': key}).encode(encoding='utf-8')
+        search_req = request.Request(self._get_full_url('/index.php', s='vod-search'),
+                                     data=form_data, headers=self._headers, method='POST')
+        search_req.add_header('Origin', 'https://www.zhandi.cc')
+        search_req.add_header('Referer', 'https://www.zhandi.cc/')
+        return search_req
+
+    def _find_resources(self, soup, subtype) -> list:
+        resources = []
+        for mov in soup.find('ul', {'id': 'contents'}).find_all('li'):
+            mov_a = mov.h5.a
+            if any(t in mov_a['href'] for t in ['Dz', 'Xj', 'Aq', 'Kh', 'Kb', 'War', 'Jq']):
+                t = 'movie'
+            elif any(t in mov_a['href'] for t in ['Gc', 'Gt', 'Om', 'Rh', 'Hw', 'Zy']):
+                t = 'tv'
+            else:
+                t = 'unknown'
+            if subtype == t:
+                resources.append({
+                    'name': mov_a.get_text().strip(),
+                    'href': mov_a['href']
+                })
+        return resources
+
+    def _find_downs(self, soup):
+        links = {}
+        down_ul = soup.find('ul', id='downul')
+        if down_ul is None:
+            return {}
+        for down_li in down_ul.find_all('li'):
+            down_a = down_li.p.a
+            links[down_a['href']] = down_a.get_text().strip()
+        return links
+
+
+class VideoSearchHhyyk(VideoSearch):
+
+    def __init__(self) -> None:
+        import warnings
+        warnings.warn('Not filter by subtype', DeprecationWarning)
+        super().__init__('Hhyyk', 'www.hhyyk.com', timeout=20, scheme='http', headers={
+            'Host': 'www.hhyyk.com'
+        })
+
+    def _search_req(self, key, **kwargs) -> Request:
+        search_req = request.Request(self._get_full_url('/search', keyword=key), headers=self._headers, method='GET')
+        search_req.add_header('Referer', 'http://www.hhyyk.com/')
+        search_req.add_header('Host', self._netloc)
+        return search_req
+
+    def _find_resources(self, soup, subtype) -> list:
+        resources = []
+        tbody = soup.find('tbody')
+        if tbody is not None:
+            for tr in tbody.find_all('tr')[1:]:
+                mov_a = tr.td.a
+                resources.append({
+                    'name': mov_a.get_text().strip(),
+                    'href': mov_a['href']
+                })
+        return resources
+
+    def _find_downs(self, soup):
+        links = {}
+        for p in soup.find_all('p', class_='detail-text-p'):
+            down_a = p.span.a
+            links[down_a['href']] = down_a.get_text().strip()
+        return links
+
+
+class VideoSearchPiaohua(VideoSearch):
+    """
+    Main links: magnet
+    """
+
+    def __init__(self):
+        super().__init__('Piaohua', 'www.piaohua.com', timeout=20, headers={
+            'authority': 'www.piaohua.com',
+            'scheme': 'https'
+        })
+
+    def _search_req(self, key, **kwargs) -> Request:
+        search_req = request.Request(self._get_full_url('/plus/search.php', keyword=key), headers=self._headers, method='GET')
+        search_req.add_header('Referer', self.home)
+        return search_req
+
+    def _find_resources(self, soup, subtype) -> list:
+        resources = []
+        for li in soup.find('ul', class_='ul-imgtxt2 row').find_all('li'):
+            mov_a = li.find('h3').a
+            mov_a.em.decompose()
+            if any(t in mov_a['href'] for t in ['dongzuo', 'xiju', 'aiqing', 'kehuan', 'juqing', 'xuannian',
+                                                'zhangzheng', 'kongbu', 'zainan']):
+                t = 'movie'
+            elif any(t in mov_a['href'] for t in ['lianxuju', 'zongyijiemu']):
+                t = 'tv'
+            else:
+                t = 'unknown'
+            if subtype == t:
+                resources.append({
+                    'name': mov_a.get_text().strip(),
+                    'href': mov_a['href']
+                })
+        return resources
+
+    def _find_downs(self, soup):
+        links = {}
+        bot = soup.find('div', class_='m-text1').find('div', class_='bot')
+        if bot is None:
+            return {}
+        for down_a in bot.find_all('a'):
+            href = down_a['href']
+            if href == 'javascript: void(0);':
+                href = down_a.get_text().strip()
+            links[href] = down_a.get_text().strip()
+        return links
+
+
+class SrtSearchSsk(VideoSearch):
+    """
+    Search srt resources from <https://sskzmz.com/>.
+    """
+
+    def __init__(self) -> None:
+        import warnings
+        warnings.warn('Not filter by subtype', DeprecationWarning)
+        super().__init__('Ssk', 'sskzmz.com', timeout=20, headers={
+            'Host': 'sskzmz.com'
+        })
+
+    def _search_req(self, key, **kwargs) -> Request:
+        search_req = request.Request(self._get_full_url('/index/search', tab=key), headers=self._headers, method='GET')
+        search_req.add_header('Referer', 'https://sskzmz.com/')
+        return search_req
+
+    def _find_resources(self, soup, subtype) -> list:
+        resources = []
+        for mov in soup.find('div', {'class': 'row movie'}).find_all('div'):
+            mov_a = mov.a
+            resources.append({
+                'name': mov_a.get_text().strip(),
+                'href': mov_a['href']
+            })
+        return resources
+
+    def _find_downs(self, soup):
+        links = {}
+        for tr in soup.find('tbody').find_all('tr')[1:]:
+            tds = tr.find_all('td')
+            links[tds[0].get_text().strip()] = tds[3].a['href']
         return links
