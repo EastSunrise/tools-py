@@ -40,6 +40,9 @@ class VideoManager:
         self.__db = db
         self.cdn = cdn
         self.__idm = IDM(idm_exe, self.cdn)
+        self.__thunder = Thunder()
+        self.__temp_dir = os.path.join(self.cdn, 'Temp')
+        os.makedirs(self.__temp_dir, exist_ok=True)
 
     @property
     def cdn(self):
@@ -102,7 +105,7 @@ class VideoManager:
         logger.info('Finish updating movies, %d movies changed', connection.total_changes)
         connection.close()
 
-    def collect_subjects(self, sites, no_resources_file='', thunder=None, status=0):
+    def collect_subjects(self, sites, no_resources_file='', status=0, subtype=None):
         con = self.__get_connection()
         cursor = con.cursor()
         cursor.execute('SELECT * FROM movies WHERE archived = ?', (status,))
@@ -113,11 +116,11 @@ class VideoManager:
         else:
             no_resources_ids = []
             no_resources_fp = sys.stdout
-        results = [dict(x) for x in cursor.fetchall() if x['id'] not in no_resources_ids]
+        results = [dict(x) for x in cursor.fetchall() if x['id'] not in no_resources_ids and (subtype is None or subtype == x['subtype'])]
         total, success = len(results), 0
         for i, x in enumerate(results):
             logger.info('Collecting subjects: %d/%d', i + 1, total)
-            if self.__collect_subject(x, con, sites, thunder):
+            if self.__collect_subject(x, con, sites):
                 success += 1
             else:
                 no_resources_fp.write('\n%d, %s' % (x['id'], x['title']))
@@ -127,7 +130,7 @@ class VideoManager:
         con.close()
         return success
 
-    def collect_subject(self, subject_id: int, sites, thunder=None):
+    def collect_subject(self, subject_id: int, sites):
         """
         Search and download resources for subject specified by id. There  steps as commented.
         :param subject_id:
@@ -142,7 +145,7 @@ class VideoManager:
         if result is None:
             logger.info('No subject with id %d', subject_id)
             return False
-        r = self.__collect_subject(dict(result), con, sites, thunder)
+        r = self.__collect_subject(dict(result), con, sites)
         con.close()
         return r
 
@@ -220,7 +223,7 @@ class VideoManager:
                 continue
             os.makedirs(path, exist_ok=True)
             src_md5 = base.get_md5(src)
-            logger.info('Copy file from %s to %s', src, dst)
+            logger.info('\nCopy file from %s to %s', src, dst)
             dst = shutil.copy2(src, dst)
             if base.get_md5(dst) != src_md5:
                 logger.error('File corrupted while copying')
@@ -234,7 +237,7 @@ class VideoManager:
         logger.info('Finish archiving: %d success', archived)
         con.close()
 
-    def __collect_subject(self, subject, connection, sites, thunder: Thunder = None):
+    def __collect_subject(self, subject, connection, sites):
         cursor = connection.cursor()
         subject_id, title, subtype = subject['id'], subject['title'], subject['subtype']
         path, filename = self.__get_location(subject)
@@ -244,14 +247,14 @@ class VideoManager:
             logger.info('File exists for the subject %s: %s', title, archived)
             return True
 
-        # search http_resources
+        # search http resources
+        other_resources = {'ed2k': set(), 'pan': set(), 'ftp': set(), 'magnet': set(), 'torrent': set(), 'unknown': set()}
         for site in sorted(sites, key=lambda x: x.priority):
             logger.info('Searching: %s', site.name)
             links = site.search(subject)
 
-            # filter
-            http_resources, ed2k_resources = [], []
-            other_resources = {'pan': [], 'ftp': [], 'magnet': [], 'torrent': [], 'unknown': []}
+            # classify urls
+            http_resources = []
             for url, remark in links.items():
                 p, u = classify_url(url)
                 if any([u.find(x) >= 0 for x in self.JUNK_SITES]):
@@ -260,51 +263,30 @@ class VideoManager:
                     ext = os.path.splitext(u)[1]
                     if ext in VIDEO_SUFFIXES:
                         http_resources.append({'url': u, 'ext': ext})
-                elif p == 'ed2k':
-                    parts = u.split('|')
-                    ext = os.path.splitext(parts[2])[1]
-                    if ext in VIDEO_SUFFIXES:
-                        ed2k_resources.append({'url': u, 'ext': ext, 'size': int(parts[3])})
                 else:
-                    if p == 'pan':
-                        logger.info('Excluded link: %s, %s', u, remark)
-                    else:
-                        logger.info('Excluded link: %s', u)
-                    other_resources[p].append(u)
+                    other_resources[p].add(u)
+
+            # add IDM task with a chosen http url
+            if len(http_resources) == 0:
+                logger.info('No http links found on %s', site.name)
+                continue
             if subtype == 'movie':
-                flag = False
                 durations = [int(re.findall(r'\d+', d)[0]) for d in subject['durations']]
-                if len(http_resources) > 0:
-                    for r in http_resources:
-                        code, msg, args = pre_download(r['url'])
-                        if code == 200:
-                            r['weight'] = weight_video(r['ext'], durations, args['size'])
-                        else:
-                            r['weight'] = -1
-                    chosen = max(http_resources, key=lambda x: x['weight'])
-                    if chosen['weight'] > 0:
-                        os.makedirs(path, exist_ok=True)
-                        filename += chosen['ext']
-                        logger.info('Add IDM task of %s, downloading from %s to %s', filename, chosen['url'], path)
-                        self.__idm.add_task(chosen['url'], path, filename)
-                        flag = True
-                if not flag and thunder and len(ed2k_resources) > 0:
-                    for r in ed2k_resources:
-                        r['weight'] = weight_video(r['ext'], durations, r['size'])
-                    chosen = max(ed2k_resources, key=lambda x: x['weight'])
-                    if chosen['weight'] > 0:
-                        os.makedirs(path, exist_ok=True)
-                        dst_name = '%d_%s%s' % (subject_id, title, chosen['ext'])
-                        logger.info('Add Thunder task of %s, downloading from %s to temp dir', title, chosen['url'])
-                        thunder.add_task(chosen['url'], dst_name)
-                        thunder.commit_tasks()
-                        flag = True
-                if not flag:
+                for r in http_resources:
+                    code, msg, args = pre_download(r['url'])
+                    if code == 200:
+                        r['weight'] = weight_video(r['ext'], durations, args['size'])
+                    else:
+                        r['weight'] = -1
+                chosen = max(http_resources, key=lambda x: x['weight'])
+                if chosen['weight'] < 0:
+                    logger.info('No qualified resources.')
                     continue
+                os.makedirs(path, exist_ok=True)
+                filename += chosen['ext']
+                logger.info('Add IDM task of %s, downloading from %s to %s', filename, chosen['url'], path)
+                self.__idm.add_task(chosen['url'], path, filename)
             else:
-                if len(http_resources) == 0:
-                    logger.info('No http links found on %s', site.name)
-                    continue
                 episodes_count = subject['episodes_count']
                 for r in http_resources:
                     t, s = parse.splittype(r['url'])
@@ -399,6 +381,8 @@ class VideoManager:
                 episode = 'E%%0%dd%%s' % math.ceil(math.log10(episodes_count + 1))
                 for i, url in enumerate(urls):
                     self.__idm.add_task(url, path, episode % ((i + 1), os.path.splitext(url)[1]))
+
+            # update status
             cursor.execute('UPDATE movies SET archived = 2, source = ?, last_update = DATETIME(\'now\')'
                            'WHERE id = ?', (site.name, subject_id))
             if cursor.rowcount != 1:
@@ -408,8 +392,31 @@ class VideoManager:
             logger.info('Resources searched for %s. Downloading...', title)
             connection.commit()
             return True
-        logger.info('No resources found for %s', title)
-        return False
+
+        # add all other resources if there isn't a valid http url
+        count = 0
+        for p in ['ed2k', 'ftp']:
+            for u in other_resources[p]:
+                logger.info('Add Thunder task of %s, downloading from %s to the temporary dir', title, u)
+                if p == 'ftp':
+                    ext = os.path.splitext(u)[1]
+                else:
+                    ext = os.path.splitext(u.split('|')[2])[1]
+                self.__thunder.add_task(u, '%d_%s_%s_%d%s' % (subject_id, title, p, count, ext))
+                count += 1
+        if count == 0:
+            logger.warning('No resources found: %s', title)
+            return False
+        self.__thunder.commit_tasks()
+        cursor.execute('UPDATE movies SET archived = ?, last_update = DATETIME(\'now\')'
+                       'WHERE id = ?', (3, subject_id))
+        if cursor.rowcount != 1:
+            logger.error('Failed to update movie: %d. ROLLBACK!', subject_id)
+            connection.rollback()
+            return False
+        logger.info('Other resources added: %d for %s. Downloading...', count, title)
+        connection.commit()
+        return True
 
     @staticmethod
     def __compute_limit(left, right, uf, phs, is_equal):
@@ -614,7 +621,7 @@ def classify_url(url: str):
             url = url.decode('gbk').strip('AAZZ')
     url = parse.unquote(url.rstrip('/'))
 
-    if url.startswith('https://pan.baidu.com'):
+    if 'pan.baidu.com' in url:
         return 'pan', url
     if url.endswith('.torrent'):
         return 'torrent', url

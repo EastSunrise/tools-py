@@ -15,8 +15,9 @@ CREATE TABLE IF NOT EXISTS movies
     current_season INTEGER,
     episodes_count INTEGER,
     seasons_count  INTEGER,
-    archived       INTEGER NOT NULL, -- 0: unarchived, 1: archived, 2: downloading
+    archived       INTEGER NOT NULL, -- 0: unarchived, 1: archived, 2: downloading, 3: temp
     location       TEXT,
+    source         TEXT,
     last_update    TEXT    NOT NULL
 );
 
@@ -39,4 +40,4 @@ CREATE TABLE IF NOT EXISTS resources
 
 -- unique url
 create unique index resources_url_uindex
-    on resources (url);
+    on resources (url, source);

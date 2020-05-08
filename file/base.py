@@ -92,6 +92,15 @@ def get_md5(path):
     """
     md5obj = hashlib.md5()
     with open(path, 'rb') as fp:
-        md5obj.update(fp.read())
+        read_size = 0
+        size = os.path.getsize(path)
+        while True:
+            block = fp.read(4096)
+            read_size += 4096
+            print('\rComputing md5: %.2f%%' % (read_size * 100 / size), end='', flush=True)
+            if block is None or len(block) == 0:
+                print()
+                break
+            md5obj.update(block)
         md5value = md5obj.hexdigest()
         return md5value

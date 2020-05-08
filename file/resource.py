@@ -98,27 +98,6 @@ class VideoSearch(metaclass=abc.ABCMeta):
                     logger.info('No links resource: %s', resource['name'])
         return urls
 
-    def _parse_read_page(self, href, key, subtype):
-        read_soup = get_soup(self._resource_req(self._get_full_url(href), self._search_req(key, subtype=subtype).full_url))
-        return self._find_downs(read_soup)
-
-    def _parse_resource_name(self, name, subtype):
-        invalid_str = ['国语', '中字', '高清', 'HD', 'BD', '1280', 'DVD', '《', '》', '720p', '[', ']',
-                       '1024', '576', '*', '中英字幕', '中英双字']
-        for s in invalid_str:
-            name = name.replace(s, '')
-        # name = re.sub(r'\[.*\]', '', name)
-        if subtype == 'movie':
-            return set([n.strip().replace('  ', '') for n in name.split('/')])
-        else:
-            season = re.search(r'第.{1,2}季', name)
-            if season:
-                season_str = season[0]
-                name = name.replace(season_str, '')
-            else:
-                season_str = ''
-            return set([n.strip() + season_str for n in name.split('/')])
-
     def _get_possible_titles(self, subject):
         """
         get titles that may match the subject
@@ -168,10 +147,31 @@ class VideoSearch(metaclass=abc.ABCMeta):
         """
         pass
 
+    def _parse_resource_name(self, name, subtype):
+        invalid_str = ['国语', '中字', '高清', 'HD', 'BD', '1280', 'DVD', '《', '》', '720p', '[', ']',
+                       '1024', '576', '*', '中英字幕', '中英双字', '无水']
+        for s in invalid_str:
+            name = name.replace(s, '')
+        # name = re.sub(r'\[.*\]', '', name)
+        if subtype == 'movie':
+            return set([n.strip().replace('  ', '') for n in name.split('/')])
+        else:
+            season = re.search(r'第.{1,2}季', name)
+            if season:
+                season_str = season[0]
+                name = name.replace(season_str, '')
+            else:
+                season_str = ''
+            return set([n.strip() + season_str for n in name.split('/')])
+
     def _resource_req(self, href, referer) -> Request:
         read_req = request.Request(href, headers=self._headers, method='GET')
         read_req.add_header('Referer', referer)
         return read_req
+
+    def _parse_read_page(self, href, key, subtype):
+        read_soup = get_soup(self._resource_req(self._get_full_url(href), self._search_req(key, subtype=subtype).full_url))
+        return self._find_downs(read_soup)
 
     @abc.abstractmethod
     def _find_downs(self, soup) -> dict:
@@ -206,6 +206,9 @@ class VideoSearch(metaclass=abc.ABCMeta):
 
 
 class VideoSearch80s(VideoSearch):
+    """
+    Links distribution: mostly http, few ed2k/magnet
+    """
 
     def __init__(self) -> None:
         super().__init__('80s', 'www.y80s.com', priority=1, scheme='http', timeout=20, headers={
@@ -248,7 +251,7 @@ class VideoSearch80s(VideoSearch):
 
 class VideoSearchXl720(VideoSearch):
     """
-    Main links: ed2k, little: magnet/pan
+    Links distribution: mainly ed2k/ftp, few magnet/http/pan
     """
 
     def __init__(self) -> None:
@@ -292,7 +295,7 @@ class VideoSearchXl720(VideoSearch):
 
 class VideoSearchXLC(VideoSearch):
     """
-    Main links: pan/ed2k/magnet/torrent/ftp
+    Links distribution: evenly torrent/ftp/magnet/pan/http/ed2k
     """
 
     def __init__(self) -> None:
@@ -327,6 +330,9 @@ class VideoSearchXLC(VideoSearch):
 
 
 class VideoSearchAxj(VideoSearch):
+    """
+    Links distribution: mainly magnet/pan, few ed2k
+    """
 
     def __init__(self) -> None:
         super().__init__('Axj', 'www.aixiaoju.com', headers={
@@ -336,9 +342,8 @@ class VideoSearchAxj(VideoSearch):
 
     def _search_req(self, key, **kwargs) -> Request:
         fid = '26' if kwargs['subtype'] == 'movie' else '27'
-        search_req = request.Request(self._get_full_url(
-            '/app-thread-run', fid=fid, app='search', keywords=key, orderby='lastpost_time'),
-            headers=self._headers, method='GET')
+        search_req = request.Request(self._get_full_url('/app-thread-run', fid=fid, app='search', keywords=key, orderby='lastpost_time'),
+                                     headers=self._headers, method='GET')
         search_req.add_header('Referer', self.home)
         return search_req
 
@@ -371,7 +376,7 @@ class VideoSearchAxj(VideoSearch):
 
 class VideoSearchZhandi(VideoSearch):
     """
-    Main links: ftp/ed2k
+    Links distribution: mostly ftp, partly ed2k, few magnet/http
     """
 
     def __init__(self) -> None:
@@ -416,6 +421,9 @@ class VideoSearchZhandi(VideoSearch):
 
 
 class VideoSearchHhyyk(VideoSearch):
+    """
+    Links distribution: mainly ftp/pan/magnet, few torrent/http
+    """
 
     def __init__(self) -> None:
         super().__init__('Hhyyk', 'www.hhyyk.com', timeout=20, scheme='http', headers={
@@ -454,103 +462,48 @@ class VideoSearchHhyyk(VideoSearch):
         return links
 
 
-class VideoSearchPiaohua(VideoSearch):
+class VideoSearchMP4(VideoSearch):
     """
-    Main links: magnet
+    Links distribution: mainly ftp/ed2k/magnet, few http
     """
 
-    def __init__(self):
-        super().__init__('Piaohua', 'www.piaohua.com', priority=20, headers={
-            'authority': 'www.piaohua.com',
-            'scheme': 'https'
-        })
+    def __init__(self) -> None:
+        super().__init__('MP4', 'www.domp4.com')
 
     def _search_req(self, key, **kwargs) -> Request:
-        search_req = request.Request(self._get_full_url('/plus/search.php', keyword=key), headers=self._headers, method='GET')
+        search_req = request.Request(self._get_full_url('/search/%s.html' % parse.quote(key)), headers=self._headers, method='GET')
         search_req.add_header('Referer', self.home)
         return search_req
 
-    def _find_resources(self, soup, subtype) -> list:
+    def _find_resources(self, soup: bs4.BeautifulSoup, subtype) -> list:
         resources = []
-        for li in soup.find('ul', class_='ul-imgtxt2 row').find_all('li'):
-            mov_a = li.find('h3').a
-            mov_a.em.decompose()
-            if any(t in mov_a['href'] for t in ['dongzuo', 'xiju', 'aiqing', 'kehuan', 'juqing', 'xuannian',
-                                                'zhangzheng', 'kongbu', 'zainan']):
-                t = 'movie'
-            elif any(t in mov_a['href'] for t in ['lianxuju', 'zongyijiemu']):
-                t = 'tv'
-            else:
-                t = 'unknown'
-            if subtype == t:
+        for li in soup.find('div', id='list_all').find('ul').find_all('li'):
+            h2 = li.find('h2')
+            if h2:
+                a = h2.find('a')
                 resources.append({
-                    'name': mov_a.get_text().strip(),
-                    'href': mov_a['href']
+                    'name': a.get_text().strip(),
+                    'href': a['href']
                 })
         return resources
 
-    def _find_downs(self, soup):
+    def _parse_resource_name(self, name, subtype):
+        match = re.search(r'《.*》', name)
+        if match:
+            name = match[0].strip('《》')
+        return super()._parse_resource_name(name, subtype)
+
+    def _parse_read_page(self, href, key, subtype):
+        soup = bs4.BeautifulSoup(browser(self._get_full_url(href)), 'html.parser')
+        return self._find_downs(soup)
+
+    def _find_downs(self, soup) -> dict:
         links = {}
-        bot = soup.find('div', class_='m-text1').find('div', class_='bot')
-        if bot is None:
-            return {}
-        for down_a in bot.find_all('a'):
-            href = down_a['href']
-            if href == 'javascript: void(0);':
-                href = down_a.get_text().strip()
-            links[href] = down_a.get_text().strip()
+        for div in soup.find_all('div', class_='article-related download_url'):
+            for li in div.find('ul').find_all('li'):
+                a = li.find('div', class_='url-left').find('a')
+                links[a['href']] = a['title']
         return links
-
-
-class VideoSearchMP4(VideoSearch):
-
-    def _search_req(self, key, **kwargs) -> Request:
-        pass
-
-    def _find_resources(self, soup: bs4.BeautifulSoup, subtype) -> list:
-        pass
-
-    def _find_downs(self, soup) -> dict:
-        pass
-
-    def __init__(self) -> None:
-        super().__init__('MP4', 'domp4.com')
-
-    # todo
-
-
-class VideoSearchPianHD(VideoSearch):
-
-    def _search_req(self, key, **kwargs) -> Request:
-        pass
-
-    def _find_resources(self, soup: bs4.BeautifulSoup, subtype) -> list:
-        pass
-
-    def _find_downs(self, soup) -> dict:
-        pass
-
-    def __init__(self) -> None:
-        super().__init__('PianHD', 'pianhd.com', scheme='http')
-
-    # todo
-
-
-class VideoSearchDingZi(VideoSearch):
-
-    def _search_req(self, key, **kwargs) -> Request:
-        pass
-
-    def _find_resources(self, soup: bs4.BeautifulSoup, subtype) -> list:
-        pass
-
-    def _find_downs(self, soup) -> dict:
-        pass
-
-    def __init__(self) -> None:
-        super().__init__('DingZi', 'dingzi66.com/', scheme='http')
-
-    # todo
 
 
 class SrtSearchSsk(VideoSearch):
