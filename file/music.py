@@ -12,6 +12,9 @@ import os
 from urllib.request import urlopen, Request
 
 from file import base
+from utils import config
+
+logger = config.get_logger(__name__)
 
 
 class Kugou:
@@ -29,7 +32,7 @@ class Kugou:
         self.__md5object = hashlib.md5()
 
     def __get_result(self, url):
-        print('Get from %s' % url)
+        logger.info('Get from %s', url)
         return json.loads(gzip.decompress(urlopen(Request(url, headers=self.__headers)).read()).decode('utf-8'))
 
     def get_songs_by_singer(self, singer_id, page_size=20) -> list:

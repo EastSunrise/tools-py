@@ -71,10 +71,10 @@ class VideoManager:
                 cursor.execute('UPDATE movies SET status=?, tag_date=?, last_update=DATETIME(\'now\') WHERE id = ?',
                                (subject['status'], subject['tag_date'], int(subject_id)))
                 if cursor.rowcount != 1:
-                    logger.error('Failed to update movie: %s. ROLLBACK!' % subject['title'])
+                    logger.error('Failed to update movie: %s. ROLLBACK!', subject['title'])
                     connection.rollback()
                 else:
-                    logger.info('Update movie: %s' % subject['title'])
+                    logger.info('Update movie: %s', subject['title'])
                     connection.commit()
             else:
                 try:
@@ -94,12 +94,12 @@ class VideoManager:
                                    'year', 'durations', 'current_season', 'episodes_count', 'seasons_count'
                                ]]))
                 if cursor.rowcount != 1:
-                    logger.error('Failed to Add movie: %s. ROLLBACK!' % subject['title'])
+                    logger.error('Failed to Add movie: %s. ROLLBACK!', subject['title'])
                     connection.rollback()
                 else:
-                    logger.info('Add movie: %s' % subject['title'])
+                    logger.info('Add movie: %s', subject['title'])
                     connection.commit()
-        logger.info('Finish updating movies, %d movies changed' % connection.total_changes)
+        logger.info('Finish updating movies, %d movies changed', connection.total_changes)
         connection.close()
 
     def collect_subjects(self, sites, no_resources_file='', thunder=None, status=0):
@@ -116,13 +116,13 @@ class VideoManager:
         results = [dict(x) for x in cursor.fetchall() if x['id'] not in no_resources_ids]
         total, success = len(results), 0
         for i, x in enumerate(results):
-            logger.info('Collecting subjects: %d/%d' % (i + 1, total))
+            logger.info('Collecting subjects: %d/%d', i + 1, total)
             if self.__collect_subject(x, con, sites, thunder):
                 success += 1
             else:
                 no_resources_fp.write('\n%d, %s' % (x['id'], x['title']))
                 no_resources_fp.flush()
-        logger.info('Finish collecting, total: %d, success: %d, fail: %d' % (total, success, total - success))
+        logger.info('Finish collecting, total: %d, success: %d, fail: %d', total, success, total - success)
         no_resources_fp.close()
         con.close()
         return success
@@ -140,7 +140,7 @@ class VideoManager:
         cursor.execute('SELECT * FROM movies WHERE id = ?', (subject_id,))
         result = cursor.fetchone()
         if result is None:
-            logger.info('No subject with id %d' % subject_id)
+            logger.info('No subject with id %d', subject_id)
             return False
         r = self.__collect_subject(dict(result), con, sites, thunder)
         con.close()
@@ -153,9 +153,9 @@ class VideoManager:
         con = self.__get_connection()
         cursor = con.cursor()
         cursor.execute('SELECT * FROM movies')
+        subjects = cursor.fetchall()
         updates = []
         archived_count = update_count = unarchived_count = fail_downloading = 0
-        subjects = cursor.fetchall()
 
         for subject in subjects:
             archived = self.__archived(subject)
@@ -179,11 +179,12 @@ class VideoManager:
                 logger.error('Failed to update locations of subjects. ROLLBACK!')
                 con.rollback()
             else:
-                logger.info('Archive subjects: %d added, %d updated, %d unarchived, %d failed downloading'
-                            % (archived_count, update_count, unarchived_count, fail_downloading))
+                logger.info('Archive subjects: %d added, %d updated, %d unarchived, %d failed downloading',
+                            archived_count, update_count, unarchived_count, fail_downloading)
                 con.commit()
 
-        locations = [x['location'] for x in subjects] + [x[1] for x in updates]
+        cursor.execute('SELECT * FROM movies')
+        locations = [x['location'] for x in cursor.fetchall()] + [x[1] for x in updates]
         for subtype in ['Movies', 'TV']:
             subtype_path = os.path.join(self.cdn, subtype)
             for language in os.listdir(subtype_path):
@@ -191,7 +192,7 @@ class VideoManager:
                 for filename in os.listdir(language_path):
                     filepath = os.path.join(language_path, filename)
                     if filepath not in locations:
-                        logger.info('Dislocated: %s' % filepath)
+                        logger.info('Dislocated: %s', filepath)
         con.close()
 
     def archive_temp(self):
@@ -209,17 +210,17 @@ class VideoManager:
             cursor.execute('UPDATE movies SET archived = ?, location = ?, last_update = DATETIME(\'now\') '
                            'WHERE id = ?', (1, dst, subject_id))
             if cursor.rowcount != 1:
-                logger.error('Failed to update: %d. ROLLBACK!' % subject_id)
+                logger.error('Failed to update: %d. ROLLBACK!', subject_id)
                 con.rollback()
                 continue
             src = os.path.join(self.cdn, 'Temp', name)
             if os.path.exists(dst):
-                logger.warning('Exists: %s' % dst)
+                logger.warning('Exists: %s', dst)
                 con.rollback()
                 continue
             os.makedirs(path, exist_ok=True)
             src_md5 = base.get_md5(src)
-            logger.info('Copy file from %s to %s' % (src, dst))
+            logger.info('Copy file from %s to %s', src, dst)
             dst = shutil.copy2(src, dst)
             if base.get_md5(dst) != src_md5:
                 logger.error('File corrupted while copying')
@@ -229,8 +230,8 @@ class VideoManager:
             os.remove(src)
             con.commit()
             archived += 1
-            logger.info('Archived: %s' % filename)
-        logger.info('Finish archiving: %d success' % archived)
+            logger.info('Archived: %s', filename)
+        logger.info('Finish archiving: %d success', archived)
         con.close()
 
     def __collect_subject(self, subject, connection, sites, thunder: Thunder = None):
@@ -238,14 +239,14 @@ class VideoManager:
         subject_id, title, subtype = subject['id'], subject['title'], subject['subtype']
         path, filename = self.__get_location(subject)
         archived = self.__archived(subject)
-        logger.info('Collecting subject: %s' % subject['title'])
+        logger.info('Collecting subject: %s, %s', title, subject['alt'])
         if archived:
-            logger.info('File exists for the subject %s: %s' % (title, archived))
+            logger.info('File exists for the subject %s: %s', title, archived)
             return True
 
         # search http_resources
-        for site in sites:
-            logger.info('Searching: %s, for %s, %s' % (site.name, title, subject['alt']))
+        for site in sorted(sites, key=lambda x: x.priority):
+            logger.info('Searching: %s', site.name)
             links = site.search(subject)
 
             # filter
@@ -265,7 +266,10 @@ class VideoManager:
                     if ext in VIDEO_SUFFIXES:
                         ed2k_resources.append({'url': u, 'ext': ext, 'size': int(parts[3])})
                 else:
-                    logger.info('Excluded link: %s' % u)
+                    if p == 'pan':
+                        logger.info('Excluded link: %s, %s', u, remark)
+                    else:
+                        logger.info('Excluded link: %s', u)
                     other_resources[p].append(u)
             if subtype == 'movie':
                 flag = False
@@ -281,7 +285,7 @@ class VideoManager:
                     if chosen['weight'] > 0:
                         os.makedirs(path, exist_ok=True)
                         filename += chosen['ext']
-                        logger.info('Add IDM task of %s, downloading from %s to %s' % (filename, chosen['url'], path))
+                        logger.info('Add IDM task of %s, downloading from %s to %s', filename, chosen['url'], path)
                         self.__idm.add_task(chosen['url'], path, filename)
                         flag = True
                 if not flag and thunder and len(ed2k_resources) > 0:
@@ -291,7 +295,7 @@ class VideoManager:
                     if chosen['weight'] > 0:
                         os.makedirs(path, exist_ok=True)
                         dst_name = '%d_%s%s' % (subject_id, title, chosen['ext'])
-                        logger.info('Add Thunder task of %s, downloading from %s to temp dir' % (title, chosen['url']))
+                        logger.info('Add Thunder task of %s, downloading from %s to temp dir', title, chosen['url'])
                         thunder.add_task(chosen['url'], dst_name)
                         thunder.commit_tasks()
                         flag = True
@@ -299,7 +303,7 @@ class VideoManager:
                     continue
             else:
                 if len(http_resources) == 0:
-                    logger.info('No http links found on %s' % site.name)
+                    logger.info('No http links found on %s', site.name)
                     continue
                 episodes_count = subject['episodes_count']
                 for r in http_resources:
@@ -386,25 +390,25 @@ class VideoManager:
                 urls = urls[1:]
                 empties = [str(i + 1) for i, x in enumerate(urls) if x is None]
                 if len(empties) > 0:
-                    logger.info('Not enough episodes for %s, total: %d, lacking: %s'
-                                % (subject['title'], episodes_count, ', '.join(empties)))
+                    logger.info('Not enough episodes for %s, total: %d, lacking: %s',
+                                subject['title'], episodes_count, ', '.join(empties))
                     continue
-                logger.info('Add IDM tasks of %s, %d episodes' % (subject['title'], episodes_count))
+                logger.info('Add IDM tasks of %s, %d episodes', subject['title'], episodes_count)
                 path = os.path.join(path, filename)
                 os.makedirs(path, exist_ok=True)
                 episode = 'E%%0%dd%%s' % math.ceil(math.log10(episodes_count + 1))
                 for i, url in enumerate(urls):
                     self.__idm.add_task(url, path, episode % ((i + 1), os.path.splitext(url)[1]))
-            cursor.execute('UPDATE movies SET archived = 2, last_update = DATETIME(\'now\')'
-                           'WHERE id = ?', (subject_id,))
+            cursor.execute('UPDATE movies SET archived = 2, source = ?, last_update = DATETIME(\'now\')'
+                           'WHERE id = ?', (site.name, subject_id))
             if cursor.rowcount != 1:
-                logger.error('Failed to update movie: %d. ROLLBACK!' % subject_id)
+                logger.error('Failed to update movie: %d. ROLLBACK!', subject_id)
                 connection.rollback()
                 continue
-            logger.info('Resources searched for %s. Downloading...' % title)
+            logger.info('Resources searched for %s. Downloading...', title)
             connection.commit()
             return True
-        logger.info('No resources found for %s' % title)
+        logger.info('No resources found for %s', title)
         return False
 
     @staticmethod
@@ -437,7 +441,7 @@ class VideoManager:
     def __get_connection(self):
         c = connect(self.__db, 30, detect_types=PARSE_DECLTYPES)
         c.row_factory = Row
-        c.set_trace_callback(lambda x: logger.info('Execute: %s' % x))
+        c.set_trace_callback(lambda x: logger.info('Execute: %s', x))
         return c
 
     def __get_location(self, subject):
@@ -582,7 +586,7 @@ def separate_srt(src: str):
                             segment.append(line)
                         else:
                             if len(segment) != 4:
-                                print('Special lines in No. %s' % segment[0])
+                                logger.info('Special lines in No. %s', segment[0])
                             f1.writelines([
                                 segment[0], segment[1], segment[2], '\n'
                             ])

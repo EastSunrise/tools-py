@@ -2,6 +2,10 @@ import hashlib
 import os
 import shutil
 
+from utils import config
+
+logger = config.get_logger(__name__)
+
 
 def find_duplicate(dst_dir, get_key, recursive=False):
     """
@@ -40,11 +44,11 @@ def copy(src, dst_dir):
     if os.path.isfile(src):
         dst_path = os.path.join(dst_dir, os.path.basename(src))
         if os.path.exists(dst_path):
-            print('Exist does the file %s' % dst_path)
+            logger.info('Exist does the file %s', dst_path)
             return
         os.makedirs(dst_dir, exist_ok=True)
         shutil.copy(src, dst_path)
-        print("Copied was the file from %s to %s" % (src, dst_dir))
+        logger.info("Copied was the file from %s to %s", (src, dst_dir))
         return
 
     if os.path.isdir(src):
@@ -66,11 +70,11 @@ def move(src, dst_dir):
     if os.path.isfile(src):
         dst_path = os.path.join(dst_dir, os.path.basename(src))
         if os.path.exists(dst_path):
-            print('Exist does the file %s' % dst_path)
+            logger.info('Exist does the file %s', dst_path)
             return
         os.makedirs(dst_dir, exist_ok=True)
         shutil.move(src, dst_path)
-        print("Moved was the file %s to %s" % (src, dst_path))
+        logger.info('Moved was the file %s to %s', (src, dst_path))
         return
 
     if os.path.isdir(src):

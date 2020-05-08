@@ -33,10 +33,10 @@ def do_request(req: Request, pause=0.0, timeout=10, retry=3):
     """
     if pause > 0:
         time.sleep(pause)
-    logger.info('%s from %s' % (req.method, req.full_url))
+    logger.info('%s from %s', req.method, req.full_url)
     if req.get_method().upper() == 'POST' and req.data is not None:
         logger.info('Query: ' + parse.unquote(req.data.decode('utf=8')))
-    timeout_count = reset_count = 0
+    timeout_count = reset_count = no_response_count = refused_count = 0
     while True:
         try:
             with urlopen(req, timeout=timeout) as r:
@@ -49,11 +49,39 @@ def do_request(req: Request, pause=0.0, timeout=10, retry=3):
             logger.info('Retry...')
             time.sleep(timeout)
         except error.HTTPError as e:
-            logger.error('Error code: %d, %s' % (e.getcode(), e.msg))
+            logger.error(e)
+            raise e
+        except error.URLError as e:
+            logger.error(e)
+            if e.errno is not None:
+                raise e
+            if e.reason is not None:
+                e = e.reason
+                if isinstance(e, socket.gaierror):
+                    raise e
+                if isinstance(e, TimeoutError):
+                    if no_response_count >= retry:
+                        raise e
+                    no_response_count += 1
+                    logger.info('Retry...')
+                    time.sleep(timeout)
+                    continue
+                if isinstance(e, ConnectionRefusedError):
+                    if refused_count >= retry:
+                        raise e
+                    refused_count += 1
+                    logger.info('Retry...')
+                    time.sleep(timeout)
+                    continue
+            logger.error('Unknown error')
             raise e
         except ConnectionResetError as e:
             logger.error(e)
-            raise e
+            if reset_count >= retry:
+                raise e
+            reset_count += 1
+            logger.info('Retry...')
+            time.sleep(timeout)
 
 
 def pre_download(url, pause=0.0, timeout=30, retry=3):
@@ -69,7 +97,7 @@ def pre_download(url, pause=0.0, timeout=30, retry=3):
     timeout_count = reset_count = no_response_count = refused_count = 0
     while True:
         try:
-            logger.info('Pre-GET from %s' % req.full_url)
+            logger.info('Pre-GET from %s', req.full_url)
             with urlopen(req, timeout=timeout) as r:
                 size = r.getheader('Content-Length')
                 if size is None:
@@ -141,7 +169,7 @@ chrome = webdriver.Chrome(options=options, executable_path='chromedriver 81.0.40
 
 
 def browser(url):
-    logger.info('Get from %s' % url)
+    logger.info('Get from %s', url)
     chrome.get(url)
     return chrome.page_source
 
@@ -204,11 +232,11 @@ class Downloader:
 
         # single thread to download small files
         if total_size <= self.bound_size:
-            logger.info('Downloading from %s to %s' % (url, filepath))
+            logger.info('Downloading from %s to %s', url, filepath)
             with open(filepath, 'wb') as fp:
                 with urlopen(Request(quote_url(url), headers=base_headers, method='GET')) as r:
                     fp.write(r)
-            logger.info('Success downloading: %s' % filepath)
+            logger.info('Success downloading: %s', filepath)
             return 200, 'OK'
 
         thread_size = total_size // self._DownloadThread.block_size + 1
@@ -421,6 +449,6 @@ class IDM:
         if cp.stdout != b'':
             logger.info(cp.stdout)
         if cp.returncode != 0:
-            logger.error('Error command: %s' % ' '.join(cp.args))
+            logger.error('Error command: %s', ' '.join(cp.args))
             logger.error(cp.stderr)
         return cp.returncode

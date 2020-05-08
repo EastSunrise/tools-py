@@ -24,10 +24,11 @@ logger = config.get_logger(__name__)
 class VideoSearch(metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
-    def __init__(self, name, netloc, timeout=20, scheme='https', headers=None) -> None:
+    def __init__(self, name, netloc, priority=10, timeout=20, scheme='https', headers=None) -> None:
         self.__name = name
         self._scheme = scheme
         self._netloc = netloc
+        self.__priority = priority
         self._headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
                           'Chrome/80.0.3987.132 Safari/537.36',
@@ -39,6 +40,11 @@ class VideoSearch(metaclass=abc.ABCMeta):
             self._headers.update(headers)
         self._timeout = timeout
         self._last_access = 0.0
+
+    @property
+    def priority(self):
+        # 1 with highest priority, default 10
+        return self.__priority
 
     @property
     def name(self):
@@ -76,7 +82,7 @@ class VideoSearch(metaclass=abc.ABCMeta):
                 if len(matches & names) > 0:
                     exact_resources.append(resource)
                 else:
-                    logger.info('Excluded resource: %s, %s' % (resource['name'], self._get_full_url(resource['href'])))
+                    logger.info('Excluded resource: %s, %s', resource['name'], self._get_full_url(resource['href']))
 
             # get download urls from the resources
             for resource in exact_resources:
@@ -89,15 +95,14 @@ class VideoSearch(metaclass=abc.ABCMeta):
                 if len(links) > 0:
                     urls.update(links)
                 else:
-                    logger.info('No links resource: %s' % resource['name'])
+                    logger.info('No links resource: %s', resource['name'])
         return urls
 
     def _parse_read_page(self, href, key, subtype):
         read_soup = get_soup(self._resource_req(self._get_full_url(href), self._search_req(key, subtype=subtype).full_url))
         return self._find_downs(read_soup)
 
-    @staticmethod
-    def _parse_resource_name(name, subtype):
+    def _parse_resource_name(self, name, subtype):
         invalid_str = ['国语', '中字', '高清', 'HD', 'BD', '1280', 'DVD', '《', '》', '720p', '[', ']',
                        '1024', '576', '*', '中英字幕', '中英双字']
         for s in invalid_str:
@@ -195,7 +200,7 @@ class VideoSearch(metaclass=abc.ABCMeta):
         """
         waiting = interval - time.time() + self._last_access
         if waiting > 0:
-            logger.info('Waiting for %.2fs' % waiting)
+            logger.info('Waiting for %.2fs', waiting)
             time.sleep(waiting)
         self._last_access = time.time()
 
@@ -203,7 +208,7 @@ class VideoSearch(metaclass=abc.ABCMeta):
 class VideoSearch80s(VideoSearch):
 
     def __init__(self) -> None:
-        super().__init__('80s', 'www.y80s.com', scheme='http', timeout=20, headers={
+        super().__init__('80s', 'www.y80s.com', priority=1, scheme='http', timeout=20, headers={
             'Host': 'www.y80s.com',
         })
 
@@ -247,7 +252,7 @@ class VideoSearchXl720(VideoSearch):
     """
 
     def __init__(self) -> None:
-        super().__init__('Xl720', 'www.xl720.com', headers={
+        super().__init__('Xl720', 'www.xl720.com', priority=2, headers={
             'authority': 'www.xl720.com',
             'scheme': 'https'
         })
@@ -291,9 +296,7 @@ class VideoSearchXLC(VideoSearch):
     """
 
     def __init__(self) -> None:
-        import warnings
-        warnings.warn("Not filter by subtype.", DeprecationWarning)
-        super().__init__('XLC', 'www.xunleicang.in', timeout=20, headers={
+        super().__init__('XLC', 'www.xunleicang.in', priority=3, timeout=20, headers={
             'authority': 'www.xunleicang.in',
             'scheme': 'https'
         })
@@ -359,7 +362,10 @@ class VideoSearchAxj(VideoSearch):
     def _find_downs(self, soup) -> dict:
         links = {}
         for a in soup.find('div', class_='editor_content').find_all('a'):
-            links[a['href']] = a.get_text().strip()
+            remark = a.get_text().strip()
+            if a['href'].startswith('https://pan.baidu.com'):
+                remark = str(a.next_sibling).strip()
+            links[a['href']] = remark
         return links
 
 
@@ -412,8 +418,6 @@ class VideoSearchZhandi(VideoSearch):
 class VideoSearchHhyyk(VideoSearch):
 
     def __init__(self) -> None:
-        import warnings
-        warnings.warn('Not filter by subtype', DeprecationWarning)
         super().__init__('Hhyyk', 'www.hhyyk.com', timeout=20, scheme='http', headers={
             'Host': 'www.hhyyk.com'
         })
@@ -436,6 +440,12 @@ class VideoSearchHhyyk(VideoSearch):
                 })
         return resources
 
+    def _parse_resource_name(self, name, subtype):
+        match = re.search(r'《.*》', name)
+        if match:
+            name = match[0].strip('《》')
+        return super()._parse_resource_name(name, subtype)
+
     def _find_downs(self, soup):
         links = {}
         for p in soup.find_all('p', class_='detail-text-p'):
@@ -450,7 +460,7 @@ class VideoSearchPiaohua(VideoSearch):
     """
 
     def __init__(self):
-        super().__init__('Piaohua', 'www.piaohua.com', timeout=20, headers={
+        super().__init__('Piaohua', 'www.piaohua.com', priority=20, headers={
             'authority': 'www.piaohua.com',
             'scheme': 'https'
         })
@@ -490,6 +500,57 @@ class VideoSearchPiaohua(VideoSearch):
                 href = down_a.get_text().strip()
             links[href] = down_a.get_text().strip()
         return links
+
+
+class VideoSearchMP4(VideoSearch):
+
+    def _search_req(self, key, **kwargs) -> Request:
+        pass
+
+    def _find_resources(self, soup: bs4.BeautifulSoup, subtype) -> list:
+        pass
+
+    def _find_downs(self, soup) -> dict:
+        pass
+
+    def __init__(self) -> None:
+        super().__init__('MP4', 'domp4.com')
+
+    # todo
+
+
+class VideoSearchPianHD(VideoSearch):
+
+    def _search_req(self, key, **kwargs) -> Request:
+        pass
+
+    def _find_resources(self, soup: bs4.BeautifulSoup, subtype) -> list:
+        pass
+
+    def _find_downs(self, soup) -> dict:
+        pass
+
+    def __init__(self) -> None:
+        super().__init__('PianHD', 'pianhd.com', scheme='http')
+
+    # todo
+
+
+class VideoSearchDingZi(VideoSearch):
+
+    def _search_req(self, key, **kwargs) -> Request:
+        pass
+
+    def _find_resources(self, soup: bs4.BeautifulSoup, subtype) -> list:
+        pass
+
+    def _find_downs(self, soup) -> dict:
+        pass
+
+    def __init__(self) -> None:
+        super().__init__('DingZi', 'dingzi66.com/', scheme='http')
+
+    # todo
 
 
 class SrtSearchSsk(VideoSearch):
