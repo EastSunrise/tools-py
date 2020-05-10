@@ -7,14 +7,13 @@ import base64
 import math
 import os
 import re
-import shutil
 import sys
 from itertools import groupby
 from operator import itemgetter
-from sqlite3 import register_converter, register_adapter, connect, Row, PARSE_DECLTYPES
+from sqlite3 import register_converter, register_adapter, connect, Row, PARSE_DECLTYPES, OperationalError
 from urllib import parse, error
 
-from moviepy.video.io.VideoFileClip import VideoFileClip
+from pymediainfo import MediaInfo
 
 from file import base
 from internet.douban import Douban
@@ -28,7 +27,6 @@ VIDEO_SUFFIXES = ('.avi', '.rmvb', '.mp4', '.mkv')
 standard_kbps = 2500  # kb/s
 
 
-# todo get extension from response
 class VideoManager:
     CHINESE = ['汉语普通话', '普通话', '粤语', '闽南语', '河南方言', '贵州方言', '贵州独山话']
     PROTOCOLS = ['http', 'ftp', 'ed2k', 'magnet', 'pan', 'torrent']
@@ -42,7 +40,10 @@ class VideoManager:
         self.__idm = IDM(idm_exe, self.cdn)
         self.__thunder = Thunder()
         self.__temp_dir = os.path.join(self.cdn, 'Temp')
-        os.makedirs(self.__temp_dir, exist_ok=True)
+        c = connect(self.__db, 30, detect_types=PARSE_DECLTYPES)
+        c.row_factory = Row
+        c.set_trace_callback(lambda x: logger.info('Execute: %s', x))
+        self.__con = c
 
     @property
     def cdn(self):
@@ -53,6 +54,9 @@ class VideoManager:
         if not os.path.isdir(cdn):
             cdn = './'
         self.__cdn = cdn
+
+    def close(self):
+        self.__con.close()
 
     def update_my_movies(self, douban: Douban, user_id, cookie, start_date=None):
         """
@@ -65,20 +69,13 @@ class VideoManager:
         :param start_date: when tag_date start
         """
         logger.info('Start updating movies')
-        connection = self.__get_connection()
-        cursor = connection.cursor()
-        cursor.execute('SELECT id FROM movies')
-        ids = [m['id'] for m in cursor.fetchall()]
+        ids = [m['id'] for m in self.__get_subjects()]
+        cursor = self.__con.cursor()
+        added_count = 0
         for subject_id, subject in douban.collect_my_movies(user_id, cookie, start_date=start_date).items():
-            if int(subject_id) in ids:
-                cursor.execute('UPDATE movies SET status=?, tag_date=?, last_update=DATETIME(\'now\') WHERE id = ?',
-                               (subject['status'], subject['tag_date'], int(subject_id)))
-                if cursor.rowcount != 1:
-                    logger.error('Failed to update movie: %s. ROLLBACK!', subject['title'])
-                    connection.rollback()
-                else:
-                    logger.info('Update movie: %s', subject['title'])
-                    connection.commit()
+            subject_id = int(subject_id)
+            if subject_id in ids:
+                self.__update_subject(subject_id, status=subject['status'], tag_date=subject['tag_date'])
             else:
                 try:
                     subject.update(douban.movie_subject(subject_id))
@@ -98,147 +95,14 @@ class VideoManager:
                                ]]))
                 if cursor.rowcount != 1:
                     logger.error('Failed to Add movie: %s. ROLLBACK!', subject['title'])
-                    connection.rollback()
+                    self.__con.rollback()
                 else:
                     logger.info('Add movie: %s', subject['title'])
-                    connection.commit()
-        logger.info('Finish updating movies, %d movies changed', connection.total_changes)
-        connection.close()
+                    self.__con.commit()
+                    added_count += 1
+        logger.info('Finish updating movies, %d movies added', added_count)
 
-    def collect_subjects(self, sites, no_resources_file='', status=0, subtype=None):
-        con = self.__get_connection()
-        cursor = con.cursor()
-        cursor.execute('SELECT * FROM movies WHERE archived = ?', (status,))
-        if os.path.exists(no_resources_file):
-            with open(no_resources_file, 'r', encoding='utf-8') as fp:
-                no_resources_ids = [int(line.split(', ')[0]) for line in fp.read().strip('\n').split('\n')[1:]]
-            no_resources_fp = open(no_resources_file, 'a', encoding='utf-8')
-        else:
-            no_resources_ids = []
-            no_resources_fp = sys.stdout
-        results = [dict(x) for x in cursor.fetchall() if x['id'] not in no_resources_ids and (subtype is None or subtype == x['subtype'])]
-        total, success = len(results), 0
-        for i, x in enumerate(results):
-            logger.info('Collecting subjects: %d/%d', i + 1, total)
-            if self.__collect_subject(x, con, sites):
-                success += 1
-            else:
-                no_resources_fp.write('\n%d, %s' % (x['id'], x['title']))
-                no_resources_fp.flush()
-        logger.info('Finish collecting, total: %d, success: %d, fail: %d', total, success, total - success)
-        no_resources_fp.close()
-        con.close()
-        return success
-
-    def collect_subject(self, subject_id: int, sites):
-        """
-        Search and download resources for subject specified by id. There  steps as commented.
-        :param subject_id:
-        :return:
-        """
-        con = self.__get_connection()
-        cursor = con.cursor()
-
-        # get base info of the subject
-        cursor.execute('SELECT * FROM movies WHERE id = ?', (subject_id,))
-        result = cursor.fetchone()
-        if result is None:
-            logger.info('No subject with id %d', subject_id)
-            return False
-        r = self.__collect_subject(dict(result), con, sites)
-        con.close()
-        return r
-
-    def archive(self, all_downloaded=False):
-        """
-        Archive subjects. Query subjects with specific status and then archive those have responding located files under the cdn.
-        """
-        con = self.__get_connection()
-        cursor = con.cursor()
-        cursor.execute('SELECT * FROM movies')
-        subjects = cursor.fetchall()
-        updates = []
-        archived_count = update_count = unarchived_count = fail_downloading = 0
-
-        for subject in subjects:
-            archived = self.__archived(subject)
-            if archived:
-                if subject['archived'] != 1:
-                    updates.append((1, archived, subject['id']))
-                    archived_count += 1
-                elif subject['location'] != archived:
-                    updates.append((1, archived, subject['id']))
-                    update_count += 1
-            elif subject['archived'] == 1:
-                updates.append((0, None, subject['id']))
-                unarchived_count += 1
-            elif all_downloaded and subject['archived'] == 2:
-                updates.append((0, None, subject['id']))
-                fail_downloading += 1
-        if len(updates) > 0:
-            cursor.executemany('UPDATE movies SET archived = ?, location = ?, last_update = DATETIME(\'now\') '
-                               'WHERE id = ?', updates)
-            if cursor.rowcount != len(updates):
-                logger.error('Failed to update locations of subjects. ROLLBACK!')
-                con.rollback()
-            else:
-                logger.info('Archive subjects: %d added, %d updated, %d unarchived, %d failed downloading',
-                            archived_count, update_count, unarchived_count, fail_downloading)
-                con.commit()
-
-        cursor.execute('SELECT * FROM movies')
-        locations = [x['location'] for x in cursor.fetchall()] + [x[1] for x in updates]
-        for subtype in ['Movies', 'TV']:
-            subtype_path = os.path.join(self.cdn, subtype)
-            for language in os.listdir(subtype_path):
-                language_path = os.path.join(subtype_path, language)
-                for filename in os.listdir(language_path):
-                    filepath = os.path.join(language_path, filename)
-                    if filepath not in locations:
-                        logger.info('Dislocated: %s', filepath)
-        con.close()
-
-    def archive_temp(self):
-        con = self.__get_connection()
-        cursor = con.cursor()
-        archived = 0
-        for name in os.listdir(os.path.join(self.cdn, 'Temp')):
-            basename, ext = os.path.splitext(name)
-            if ext in ['.xltd', '.cfg']:
-                continue
-            subject_id = int(basename.split('_')[0])
-            cursor.execute('SELECT * FROM movies WHERE id = ?', (subject_id,))
-            path, filename = self.__get_location(cursor.fetchone())
-            dst = os.path.join(path, filename + ext)
-            cursor.execute('UPDATE movies SET archived = ?, location = ?, last_update = DATETIME(\'now\') '
-                           'WHERE id = ?', (1, dst, subject_id))
-            if cursor.rowcount != 1:
-                logger.error('Failed to update: %d. ROLLBACK!', subject_id)
-                con.rollback()
-                continue
-            src = os.path.join(self.cdn, 'Temp', name)
-            if os.path.exists(dst):
-                logger.warning('Exists: %s', dst)
-                con.rollback()
-                continue
-            os.makedirs(path, exist_ok=True)
-            src_md5 = base.get_md5(src)
-            logger.info('\nCopy file from %s to %s', src, dst)
-            dst = shutil.copy2(src, dst)
-            if base.get_md5(dst) != src_md5:
-                logger.error('File corrupted while copying')
-                os.remove(dst)
-                con.rollback()
-                continue
-            os.remove(src)
-            con.commit()
-            archived += 1
-            logger.info('Archived: %s', filename)
-        logger.info('Finish archiving: %d success', archived)
-        con.close()
-
-    def __collect_subject(self, subject, connection, sites):
-        cursor = connection.cursor()
+    def __collect_subject(self, subject, sites):
         subject_id, title, subtype = subject['id'], subject['title'], subject['subtype']
         path, filename = self.__get_location(subject)
         archived = self.__archived(subject)
@@ -247,176 +111,274 @@ class VideoManager:
             logger.info('File exists for the subject %s: %s', title, archived)
             return True
 
-        # search http resources
-        other_resources = {'ed2k': set(), 'pan': set(), 'ftp': set(), 'magnet': set(), 'torrent': set(), 'unknown': set()}
-        for site in sorted(sites, key=lambda x: x.priority):
-            logger.info('Searching: %s', site.name)
-            links = site.search(subject)
+        # movie
+        if subtype == 'movie':
+            durations = [int(re.findall(r'\d+', d)[0]) for d in subject['durations']]
+            links = {'http': set(), 'ed2k': set(), 'pan': set(), 'ftp': set(), 'magnet': set(), 'torrent': set(), 'unknown': set()}
+            for site in sorted(sites, key=lambda x: x.priority):
+                for url, remark in site.search(subject).items():
+                    p, u = classify_url(url)
+                    if any([u.find(x) >= 0 for x in self.JUNK_SITES]):
+                        continue
+                    filename, ext, size = None, None, -1
+                    if p == 'http':
+                        filename = os.path.basename(u)
+                        ext = os.path.splitext(filename)[1]
+                        code, msg, args = pre_download(u)
+                        if code == 200:
+                            size = args['size']
+                    elif p == 'ftp':
+                        filename = os.path.basename(u)
+                        ext = os.path.splitext(filename)[1]
+                    elif p == 'ed2k':
+                        filename = u.split('|')[2]
+                        ext = os.path.splitext(filename)[1]
+                        size = int(u.split('|')[3])
+                    if weight_video(ext, durations, size) < 0:
+                        continue
+                    links[p].add((u, filename, ext))
 
-            # classify urls
-            http_resources = []
-            for url, remark in links.items():
-                p, u = classify_url(url)
-                if any([u.find(x) >= 0 for x in self.JUNK_SITES]):
-                    continue
-                if p == 'http':
-                    ext = os.path.splitext(u)[1]
-                    if ext in VIDEO_SUFFIXES:
-                        http_resources.append({'url': u, 'ext': ext})
-                else:
-                    other_resources[p].add(u)
+            url_count = 0
+            for u, filename, ext in links['http']:
+                logger.info('Add IDM task of %s, downloading from %s to the temporary dir', title, u)
+                self.__idm.add_task(u, self.__temp_dir, '%d_%s_http_%d_%s' % (subject_id, title, url_count, filename))
+                url_count += 1
+            for p in ['ed2k', 'ftp']:
+                for u, ext in links[p]:
+                    logger.info('Add Thunder task of %s, downloading from %s to the temporary dir', title, u)
+                    self.__thunder.add_task(u, '%d_%s_%s_%d_%s' % (subject_id, title, p, url_count, filename))
+                    url_count += 1
+            self.__thunder.commit_tasks()
 
-            # add IDM task with a chosen http url
-            if len(http_resources) == 0:
-                logger.info('No http links found on %s', site.name)
-                continue
-            if subtype == 'movie':
-                durations = [int(re.findall(r'\d+', d)[0]) for d in subject['durations']]
-                for r in http_resources:
-                    code, msg, args = pre_download(r['url'])
-                    if code == 200:
-                        r['weight'] = weight_video(r['ext'], durations, args['size'])
-                    else:
-                        r['weight'] = -1
-                chosen = max(http_resources, key=lambda x: x['weight'])
-                if chosen['weight'] < 0:
-                    logger.info('No qualified resources.')
-                    continue
-                os.makedirs(path, exist_ok=True)
-                filename += chosen['ext']
-                logger.info('Add IDM task of %s, downloading from %s to %s', filename, chosen['url'], path)
-                self.__idm.add_task(chosen['url'], path, filename)
-            else:
-                episodes_count = subject['episodes_count']
-                for r in http_resources:
-                    t, s = parse.splittype(r['url'])
-                    h, p = parse.splithost(s)
-                    h = '%s://%s' % (t, h)
-                    r['head'], r['path'] = h, p
-                urls = [None] * (episodes_count + 1)
-                for length, xs in groupby(sorted(http_resources, key=lambda x: len(x['path'])), key=lambda x: len(x['path'])):
-                    for head, ys in groupby(sorted(xs, key=lambda x: x['head']), key=lambda x: x['head']):
-                        rs = list(ys)
-                        if len(rs) == 1:
-                            p0 = rs[0]['path']
-                            if os.path.splitext(p0)[0].endswith('%dend' % episodes_count):
-                                url0 = rs[0]['head'] + p0
-                                c, msg, args = pre_download(url0)
-                                if c == 200:
-                                    urls[episodes_count] = url0
-                            continue
-                        commons, ds = cmp_strings([r['path'] for r in rs])
-                        for i, c in enumerate(commons[:-1]):
-                            ed = re.search(r'\d+$', c)
-                            if ed is not None:
-                                commons[i] = c[:ed.start()]
-                                for d in ds:
-                                    d[i] = c[ed.start():] + d[i]
-                        for i, c in enumerate(commons[1:]):
-                            sd = re.search(r'^\d+', c)
-                            if sd is not None:
-                                commons[i] = c[sd.end():]
-                                for d in ds:
-                                    d[i] = d[i] + c[:sd.end()]
-                        del_count = 0
-                        for i, c in enumerate(commons[1:-1]):
-                            if c == '':
-                                for d in ds:
-                                    d[i] = d[i] + c + d[i + 1]
-                                    del d[i + 1 - del_count]
-                                del commons[i + 1 - del_count]
-                                del_count += 1
-                        if any((not d[-1].isdigit() or int(d[-1]) > episodes_count) for d in ds):
-                            continue
-                        if any((len(d) > 2 or not d[0].isdigit()) for d in ds):
-                            continue
-                        gs = {}  # format-episodes
-                        if any(len(set(d)) > 1 for d in ds):
-                            phs = 1
-                            for k, es in groupby(sorted(ds, key=itemgetter(0)), key=lambda x: d[0]):
-                                es = [d[-1] for d in es]
-                                pf = commons[0] + k + '%d'.join(commons[1:])
-                                gs[pf] = gs.get(pf, []) + es
-                        else:
-                            phs = len(ds[0])
-                            pf = '%d'.join(commons)
-                            gs[pf] = gs.get(pf, []) + [d[0] for d in ds]
-                        for pf, es in gs.items():
-                            uf = head + pf
-                            els = [len(e) for e in es]
-                            min_d = min(els)
-                            if min_d == max(els):
-                                uf = uf.replace('%d', '%%0%dd' % min_d)
-                            es = [int(e) for e in es]
-                            start, end = min(es), max(es)
+            if url_count == 0:
+                logger.warning('No resources found for: %s', title)
+                return False
+            self.__update_subject(subject_id, archived=3)
+        else:
+            episodes_count = subject['episodes_count']
+            links = {'http': set(), 'ed2k': set(), 'pan': set(), 'ftp': set(), 'magnet': set(), 'torrent': set(), 'unknown': set()}
+            for site in sorted(sites, key=lambda x: x.priority):
+                for url, remark in site.search(subject).items():
+                    p, u = classify_url(url)
+                    if any([u.find(x) >= 0 for x in self.JUNK_SITES]):
+                        continue
+                    ext = None
+                    if p == 'http':
+                        ext = os.path.splitext(u)[1]
+                    elif p == 'ftp':
+                        ext = os.path.splitext(u)[1]
+                    elif p == 'ed2k':
+                        ext = os.path.splitext(u.split('|')[2])[1]
+                    if weight_video(ext) < 0:
+                        continue
+                    links[p].add((u, ext))
+            urls = self.__extract_tv_urls(links['http'], episodes_count)
+            empties = [str(i + 1) for i, x in enumerate(urls) if x is None]
+            if len(empties) > 0:
+                logger.info('Not enough episodes for %s, total: %d, lacking: %s',
+                            subject['title'], episodes_count, ', '.join(empties))
+                return False
+            logger.info('Add IDM tasks of %s, %d episodes', title, episodes_count)
+            os.makedirs(path, exist_ok=True)
+            episode = 'E%%0%dd%%s' % math.ceil(math.log10(episodes_count + 1))
+            for i, url in enumerate(urls):
+                self.__idm.add_task(url, path, episode % ((i + 1), os.path.splitext(url)[1]))
+            url_count = episodes_count
+            self.__update_subject(subject_id, archived=2)
 
-                            # compute bounds of episodes
-                            code_s, msg, args = pre_download(uf % tuple([1] * phs), pause=3)
-                            if code_s == 200:
-                                start = 1
-                            else:
-                                left = self.__compute_limit(2, start, uf, phs, True)
-                                if left > start:
-                                    continue
-                                start = left
-                            code_e, msg, args = pre_download(uf % tuple([episodes_count] * phs), pause=3)
-                            if code_e == 200:
-                                end = episodes_count + 1
-                            else:
-                                left = self.__compute_limit(end, episodes_count - 1, uf, phs, False)
-                                if left <= end:
-                                    continue
-                                end = left
-                            for i in range(start, end):
-                                urls[i] = uf % tuple([i] * phs)
-                urls = urls[1:]
-                empties = [str(i + 1) for i, x in enumerate(urls) if x is None]
-                if len(empties) > 0:
-                    logger.info('Not enough episodes for %s, total: %d, lacking: %s',
-                                subject['title'], episodes_count, ', '.join(empties))
-                    continue
-                logger.info('Add IDM tasks of %s, %d episodes', subject['title'], episodes_count)
-                path = os.path.join(path, filename)
-                os.makedirs(path, exist_ok=True)
-                episode = 'E%%0%dd%%s' % math.ceil(math.log10(episodes_count + 1))
-                for i, url in enumerate(urls):
-                    self.__idm.add_task(url, path, episode % ((i + 1), os.path.splitext(url)[1]))
-
-            # update status
-            cursor.execute('UPDATE movies SET archived = 2, source = ?, last_update = DATETIME(\'now\')'
-                           'WHERE id = ?', (site.name, subject_id))
-            if cursor.rowcount != 1:
-                logger.error('Failed to update movie: %d. ROLLBACK!', subject_id)
-                connection.rollback()
-                continue
-            logger.info('Resources searched for %s. Downloading...', title)
-            connection.commit()
-            return True
-
-        # add all other resources if there isn't a valid http url
-        count = 0
-        for p in ['ed2k', 'ftp']:
-            for u in other_resources[p]:
-                logger.info('Add Thunder task of %s, downloading from %s to the temporary dir', title, u)
-                if p == 'ftp':
-                    ext = os.path.splitext(u)[1]
-                else:
-                    ext = os.path.splitext(u.split('|')[2])[1]
-                self.__thunder.add_task(u, '%d_%s_%s_%d%s' % (subject_id, title, p, count, ext))
-                count += 1
-        if count == 0:
-            logger.warning('No resources found: %s', title)
-            return False
-        self.__thunder.commit_tasks()
-        cursor.execute('UPDATE movies SET archived = ?, last_update = DATETIME(\'now\')'
-                       'WHERE id = ?', (3, subject_id))
-        if cursor.rowcount != 1:
-            logger.error('Failed to update movie: %d. ROLLBACK!', subject_id)
-            connection.rollback()
-            return False
-        logger.info('Other resources added: %d for %s. Downloading...', count, title)
-        connection.commit()
+        logger.info('Tasks added: %d for %s. Downloading...', url_count, title)
         return True
+
+    def __extract_tv_urls(self, http_resources, episodes_count):
+        for r in http_resources:
+            t, s = parse.splittype(r['url'])
+            h, p = parse.splithost(s)
+            h = '%s://%s' % (t, h)
+            r['head'], r['path'] = h, p
+        urls = [None] * (episodes_count + 1)
+        for length, xs in groupby(sorted(http_resources, key=lambda x: len(x['path'])), key=lambda x: len(x['path'])):
+            for head, ys in groupby(sorted(xs, key=lambda x: x['head']), key=lambda x: x['head']):
+                rs = list(ys)
+                if len(rs) == 1:
+                    p0 = rs[0]['path']
+                    if os.path.splitext(p0)[0].endswith('%dend' % episodes_count):
+                        url0 = rs[0]['head'] + p0
+                        c, msg, args = pre_download(url0)
+                        if c == 200:
+                            urls[episodes_count] = url0
+                    continue
+                commons, ds = cmp_strings([r['path'] for r in rs])
+                for i, c in enumerate(commons[:-1]):
+                    ed = re.search(r'\d+$', c)
+                    if ed is not None:
+                        commons[i] = c[:ed.start()]
+                        for d in ds:
+                            d[i] = c[ed.start():] + d[i]
+                for i, c in enumerate(commons[1:]):
+                    sd = re.search(r'^\d+', c)
+                    if sd is not None:
+                        commons[i] = c[sd.end():]
+                        for d in ds:
+                            d[i] = d[i] + c[:sd.end()]
+                del_count = 0
+                for i, c in enumerate(commons[1:-1]):
+                    if c == '':
+                        for d in ds:
+                            d[i] = d[i] + c + d[i + 1]
+                            del d[i + 1 - del_count]
+                        del commons[i + 1 - del_count]
+                        del_count += 1
+                if any((not d[-1].isdigit() or int(d[-1]) > episodes_count) for d in ds):
+                    continue
+                if any((len(d) > 2 or not d[0].isdigit()) for d in ds):
+                    continue
+                gs = {}  # format-episodes
+                if any(len(set(d)) > 1 for d in ds):
+                    phs = 1
+                    for k, es in groupby(sorted(ds, key=itemgetter(0)), key=lambda x: d[0]):
+                        es = [d[-1] for d in es]
+                        pf = commons[0] + k + '%d'.join(commons[1:])
+                        gs[pf] = gs.get(pf, []) + es
+                else:
+                    phs = len(ds[0])
+                    pf = '%d'.join(commons)
+                    gs[pf] = gs.get(pf, []) + [d[0] for d in ds]
+                for pf, es in gs.items():
+                    uf = head + pf
+                    els = [len(e) for e in es]
+                    min_d = min(els)
+                    if min_d == max(els):
+                        uf = uf.replace('%d', '%%0%dd' % min_d)
+                    es = [int(e) for e in es]
+                    start, end = min(es), max(es)
+
+                    # compute bounds of episodes
+                    code_s, msg, args = pre_download(uf % tuple([1] * phs), pause=3)
+                    if code_s == 200:
+                        start = 1
+                    else:
+                        left = self.__compute_limit(2, start, uf, phs, True)
+                        if left > start:
+                            continue
+                        start = left
+                    code_e, msg, args = pre_download(uf % tuple([episodes_count] * phs), pause=3)
+                    if code_e == 200:
+                        end = episodes_count + 1
+                    else:
+                        left = self.__compute_limit(end, episodes_count - 1, uf, phs, False)
+                        if left <= end:
+                            continue
+                        end = left
+                    for i in range(start, end):
+                        urls[i] = uf % tuple([i] * phs)
+        return urls[1:]
+
+    def collect_subjects(self, sites, no_resources_file='', status=0):
+        if os.path.exists(no_resources_file):
+            with open(no_resources_file, 'r', encoding='utf-8') as fp:
+                no_resources_ids = [int(line.split(', ')[0]) for line in fp.read().strip('\n').split('\n')[1:]]
+            no_resources_fp = open(no_resources_file, 'a', encoding='utf-8')
+        else:
+            no_resources_ids = []
+            no_resources_fp = sys.stdout
+        results = [x for x in self.__get_subjects(archived=status) if x['id'] not in no_resources_ids]
+        total, success = len(results), 0
+        for i, x in enumerate(results):
+            logger.info('Collecting subjects: %d/%d', i + 1, total)
+            if self.__collect_subject(x, sites):
+                success += 1
+            else:
+                no_resources_fp.write('\n%d, %s' % (x['id'], x['title']))
+                no_resources_fp.flush()
+        logger.info('Finish collecting, total: %d, success: %d, fail: %d', total, success, total - success)
+        no_resources_fp.close()
+        return success
+
+    def collect_subject(self, subject_id: int, sites):
+        """
+        Search and download resources for subject specified by id. There  steps as commented.
+        :param subject_id:
+        :return:
+        """
+        result = self.__get_subject(id=subject_id)
+        if result is None:
+            logger.info('No subject with id %d', subject_id)
+            return False
+        r = self.__collect_subject(result, sites)
+        return r
+
+    def archive(self, all_downloaded=False):
+        """
+        Archive subjects. Query subjects with specific status and then archive those have responding located files under the cdn.
+        """
+        subjects = self.__get_subjects()
+        archived_count = update_count = unarchived_count = fail_downloading = 0
+
+        for subject in subjects:
+            archived = self.__archived(subject)
+            subject_id = subject['id']
+            if archived:
+                if subject['subtype'] == 'movie':
+                    if weight_video_file(archived, [int(re.findall(r'\d+', d)[0]) for d in subject['durations']]) < 0:
+                        logger.warning('Unqualified video file: %s', archived)
+                if subject['archived'] != 1:
+                    self.__update_subject(subject_id, archived=1, location=archived)
+                    archived_count += 1
+                elif subject['location'] != archived:
+                    self.__update_subject(subject_id, location=archived)
+                    update_count += 1
+                else:
+                    pass
+            elif subject['archived'] == 1:
+                self.__update_subject(subject_id, archived=0, location=None)
+                unarchived_count += 1
+            elif all_downloaded and subject['archived'] in (2, 3):
+                self.__update_subject(subject_id, archived=0)
+                fail_downloading += 1
+
+        logger.info('Archive subjects: %d added, %d updated, %d unarchived, %d failed downloading',
+                    archived_count, update_count, unarchived_count, fail_downloading)
+
+        locations = [x['location'] for x in self.__get_subjects()]
+        for subtype in ['Movies', 'TV']:
+            subtype_path = os.path.join(self.cdn, subtype)
+            for language in os.listdir(subtype_path):
+                language_path = os.path.join(subtype_path, language)
+                for filename in os.listdir(language_path):
+                    filepath = os.path.join(language_path, filename)
+                    if filepath not in locations:
+                        logger.info('Dislocated: %s', filepath)
+
+    def archive_temp(self):
+        """
+        After finishing IDM tasks
+        :return:
+        """
+        archived = 0
+        for subject_id, names in groupby(sorted(os.listdir(self.__temp_dir)), key=lambda x: int(x.split('_')[0])):
+            names = list(names)
+            if any([os.path.splitext(x)[1] not in VIDEO_SUFFIXES for x in names]):
+                continue
+            subject = self.__get_subject(id=subject_id)
+            durations = [int(re.findall(r'\d+', d)[0]) for d in subject['durations']]
+            path, filename = self.__get_location(subject)
+            weights = []
+            for name in names:
+                weights.append((name, weight_video_file(os.path.join(self.__temp_dir, name), durations)))
+            chosen = max(weights, key=lambda x: x[1])
+            if chosen[1] > 0:
+                ext = os.path.splitext(chosen[0])[1]
+                src = os.path.join(self.__temp_dir, chosen[0])
+                dst = os.path.join(path, filename + ext)
+                if not base.copy(src, dst):
+                    raise IOError
+                archived += 1
+                logger.info('Finished: %s', filename)
+            for name in names:
+                code, msg = base.del_to_recycle(os.path.join(self.__temp_dir, name))
+                if code != 0:
+                    logger.error('Failed to delete file: %s, %s', name, msg)
+        logger.info('Finish archiving: %d success', archived)
 
     @staticmethod
     def __compute_limit(left, right, uf, phs, is_equal):
@@ -445,11 +407,33 @@ class VideoManager:
                         return f.path
         return False
 
-    def __get_connection(self):
-        c = connect(self.__db, 30, detect_types=PARSE_DECLTYPES)
-        c.row_factory = Row
-        c.set_trace_callback(lambda x: logger.info('Execute: %s', x))
-        return c
+    def __get_subjects(self, **params):
+        cursor = self.__con.cursor()
+        if not params or len(params) == 0:
+            cursor.execute('SELECT * FROM movies')
+        else:
+            cursor.execute('SELECT * FROM movies WHERE %s' % (' AND '.join(['%s = :%s' % (k, k) for k in params])), params)
+        results = [dict(x) for x in cursor.fetchall()]
+        return results
+
+    def __get_subject(self, **params):
+        results = self.__get_subjects(**params)
+        if len(results) == 0:
+            return None
+        return results[0]
+
+    def __update_subject(self, item_id: int, **params):
+        if not params or len(params) == 0:
+            raise ValueError('No params to update')
+        cursor = self.__con.cursor()
+        cursor.execute('UPDATE movies SET last_update=DATETIME(\'now\'), %s WHERE id = %d'
+                       % (', '.join(['%s = :%s' % (k, k) for k in params]), item_id), params)
+        if cursor.rowcount != 1:
+            logger.error('Failed to update movie: %d', item_id)
+            self.__con.rollback()
+            raise OperationalError('Failed to update')
+        self.__con.commit()
+        return True
 
     def __get_location(self, subject):
         """
@@ -527,7 +511,7 @@ def weight_video_file(filepath, movie_durations=None):
     if not os.path.isfile(filepath):
         raise ValueError
     ext = os.path.splitext(filepath)[1]
-    duration = VideoFileClip(filepath).duration / 60
+    duration = get_duration(filepath) // 1000
     size = os.path.getsize(filepath)
     return weight_video(ext, movie_durations, size, duration)
 
@@ -544,9 +528,9 @@ def weight_video(ext=None, movie_durations=None, size=-1, file_duration=-1):
     Size of the file will be compared to standard size computed based on given duration of the movie and standard kbps.
     The file will be excluded if its size is less than half of the standard size.
 
-    :param movie_durations: Unit: min
+    :param movie_durations: Unit: minute
     :param size: Unit: B
-    :param file_duration: Unit: min
+    :param file_duration: Unit: second
     :return ratio * 100
     """
     ws = []
@@ -558,22 +542,25 @@ def weight_video(ext=None, movie_durations=None, size=-1, file_duration=-1):
     if movie_durations is not None:
         if file_duration >= 0:
             for i, movie_duration in enumerate(sorted(movie_durations)):
-                if abs(movie_duration - file_duration) < 1:
+                if abs(movie_duration * 60 - file_duration) < 60:
                     ws.append(100 * (i + 1) / len(movie_durations))
                     break
                 if i == len(movie_durations) - 1:
+                    logger.warning('Error durations: %d, %s', file_duration // 60, ','.join([str(x) for x in movie_durations]))
                     return -1
-            return -1
         if size >= 0:
             target_size = int(sum(movie_durations) / len(movie_durations) * 7680 * standard_kbps)
-            if size < (target_size >> 1):
+            if size < (target_size // 2):
+                logger.warning('Too small file')
                 return -1
             elif size <= target_size:
                 ws.append(100 * (size / target_size))
-            elif size <= (target_size << 1):
+            elif size <= (target_size * 2):
                 ws.append(100 * (target_size / size))
             else:
                 ws.append(200 * (target_size / size) ** 2)
+    if len(ws) == 0:
+        return 0
     return sum(ws) / len(ws)
 
 
@@ -629,3 +616,15 @@ def classify_url(url: str):
         if url.startswith(head):
             return head, url
     return 'unknown', url
+
+
+def get_duration(filepath):
+    media_info = MediaInfo.parse(filepath)
+    tracks = dict([(x.track_type, x) for x in media_info.tracks])
+    d = tracks['General'].duration
+    if isinstance(d, int):
+        return d
+    d = tracks['Video'].duration
+    if isinstance(d, int):
+        return d
+    raise ValueError('Duration Not Found')

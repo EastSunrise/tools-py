@@ -62,6 +62,7 @@ class VideoSearch(metaclass=abc.ABCMeta):
         3. access to pages of resources to get specific urls
         :return: {url: remark, ...}
         """
+        logger.info('Searching: %s, for: %s', self.name, subject['title'])
         keys, matches = self._get_possible_titles(subject)
         exact_resources, urls = [], {}
         for key in keys:

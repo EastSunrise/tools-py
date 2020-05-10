@@ -2,6 +2,9 @@ import hashlib
 import os
 import shutil
 
+from win32comext.shell import shell
+from win32comext.shell.shellcon import FO_DELETE, FOF_ALLOWUNDO
+
 from utils import config
 
 logger = config.get_logger(__name__)
@@ -34,30 +37,21 @@ def find_duplicate(dst_dir, get_key, recursive=False):
             print(same_files)
 
 
-def copy(src, dst_dir):
+def copy(src, dst):
     """
-    Copy a file or directory to target directory. Print a message if target file exists.
-    :param src: source file or directory
-    :param dst_dir: target directory
+    Copy a big file
     :return:
     """
-    if os.path.isfile(src):
-        dst_path = os.path.join(dst_dir, os.path.basename(src))
-        if os.path.exists(dst_path):
-            logger.info('Exist does the file %s', dst_path)
-            return
-        os.makedirs(dst_dir, exist_ok=True)
-        shutil.copy(src, dst_path)
-        logger.info("Copied was the file from %s to %s", (src, dst_dir))
-        return
-
-    if os.path.isdir(src):
-        dirt, name = os.path.split(src)
-        for filename in os.listdir(src):
-            copy(os.path.join(src, filename), os.path.join(dst_dir, name))
-        return
-
-    raise FileNotFoundError('Not found was the file %s' % src)
+    if os.path.isfile(dst):
+        logger.warning('File exists: %s', dst)
+        return False
+    src_md5 = get_md5(src)
+    logger.info('Copy file from %s to %s', src, dst)
+    dst = shutil.copy2(src, dst)
+    if get_md5(dst) != src_md5:
+        logger.error('File corrupted while copying')
+        return False
+    return True
 
 
 def move(src, dst_dir):
@@ -104,3 +98,29 @@ def get_md5(path):
             md5obj.update(block)
         md5value = md5obj.hexdigest()
         return md5value
+
+
+def del_to_recycle(filepath):
+    logger.info('Delete to recycle bin: %s', filepath)
+    return shell_file_operation(0, FO_DELETE, filepath, None, FOF_ALLOWUNDO, None, None)
+
+
+def shell_file_operation(file_handle, func, p_from, p_to, flags, name_dict, progress_title):
+    """
+
+    :param file_handle:
+    :param func: FO_COPY/FO_RENAME/FO_MOVE/FO_DELETE
+    :param p_from:
+    :param p_to:
+    :param flags: FOF_FILESONLY | FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI
+                    | FOF_RENAMEONCOLLISION | FOF_SILENT | FOF_WANTMAPPINGHANDLE
+    :param name_dict: new_filepath-old_filepath dict
+    :param progress_title: title of progress dialog
+    :return:
+    """
+    code = shell.SHFileOperation((file_handle, func, p_from, p_to, flags, name_dict, progress_title))[0]
+    if code == 0:
+        return 0, 'OK'
+    if code == 2:
+        return 2, 'File Not Found'
+    return code, 'Unknown Error'
