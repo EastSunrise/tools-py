@@ -58,6 +58,23 @@ class VideoManager:
     def close(self):
         self.__con.close()
 
+    def update_movie(self, subject_id, douban: Douban, cookie):
+        subject_src = self.__get_subject(id=subject_id)
+        try:
+            subject = douban.movie_subject(subject_id)
+        except error.HTTPError as e:
+            if e.code == 404:
+                subject = douban.movie_subject_with_cookie(subject_id, cookie, subject_src['title'])
+            else:
+                raise e
+        for k, v in subject_src.items():
+            if k in subject and str(v) != str(subject[k]):
+                logger.info('Update %s: from %s to %s', k, str(v), str(subject[k]))
+                subject_src[k] = subject[k]
+        del subject_src['id']
+        del subject_src['last_update']
+        self.__update_subject(subject_id, **subject_src)
+
     def update_my_movies(self, douban: Douban, user_id, cookie, start_date=None):
         """
         Update my collected movies from Douban to database.
@@ -74,17 +91,20 @@ class VideoManager:
         added_count = 0
         for subject_id, subject in douban.collect_my_movies(user_id, cookie, start_date=start_date).items():
             subject_id = int(subject_id)
+            try:
+                subject.update(douban.movie_subject(subject_id))
+            except error.HTTPError as e:
+                if e.code == 404:
+                    subject.update(douban.movie_subject_with_cookie(subject_id, cookie, subject['title']))
+                else:
+                    raise e
+            subject['title'] = remove_redundant_spaces(subject['title'])
+            subject['original_title'] = remove_redundant_spaces(subject['original_title'])
+            remove_redundant_spaces(subject['aka'])
+
             if subject_id in ids:
-                self.__update_subject(subject_id, status=subject['status'], tag_date=subject['tag_date'])
+                self.__update_subject(subject_id, **subject)
             else:
-                try:
-                    subject.update(douban.movie_subject(subject_id))
-                except error.HTTPError as e:
-                    if e.code == 404:
-                        subject.update(douban.movie_subject_with_cookie(subject_id, cookie, subject['title']))
-                subject['title'] = remove_redundant_spaces(subject['title'])
-                subject['original_title'] = remove_redundant_spaces(subject['original_title'])
-                remove_redundant_spaces(subject['aka'])
                 # default: last_update = now(), archived = 0
                 cursor.execute('INSERT INTO movies(id, title, alt, status, tag_date, original_title, aka, subtype, languages, '
                                'year, durations, current_season, episodes_count, seasons_count, last_update, archived) '
@@ -102,7 +122,7 @@ class VideoManager:
                     added_count += 1
         logger.info('Finish updating movies, %d movies added', added_count)
 
-    def __collect_subject(self, subject, sites):
+    def __collect_subject(self, subject, sites, **kwargs):
         subject_id, title, subtype = subject['id'], subject['title'], subject['subtype']
         path, filename = self.__get_location(subject)
         archived = self.__archived(subject)
@@ -111,12 +131,12 @@ class VideoManager:
             logger.info('File exists for the subject %s: %s', title, archived)
             return True
 
+        manual = False if 'manual' not in kwargs else kwargs['manual']
         # movie
         if subtype == 'movie':
-            durations = [int(re.findall(r'\d+', d)[0]) for d in subject['durations']]
             links = {'http': set(), 'ed2k': set(), 'pan': set(), 'ftp': set(), 'magnet': set(), 'torrent': set(), 'unknown': set()}
             for site in sorted(sites, key=lambda x: x.priority):
-                for url, remark in site.search(subject).items():
+                for url, remark in site.search(subject, manual).items():
                     p, u = classify_url(url)
                     if any([u.find(x) >= 0 for x in self.JUNK_SITES]):
                         continue
@@ -134,7 +154,7 @@ class VideoManager:
                         filename = u.split('|')[2]
                         ext = os.path.splitext(filename)[1]
                         size = int(u.split('|')[3])
-                    if weight_video(ext, durations, size) < 0:
+                    if weight_video(ext, subject['durations'], size) < 0:
                         continue
                     links[p].add((u, filename, ext))
 
@@ -144,7 +164,7 @@ class VideoManager:
                 self.__idm.add_task(u, self.__temp_dir, '%d_%s_http_%d_%s' % (subject_id, title, url_count, filename))
                 url_count += 1
             for p in ['ed2k', 'ftp']:
-                for u, ext in links[p]:
+                for u, filename, ext in links[p]:
                     logger.info('Add Thunder task of %s, downloading from %s to the temporary dir', title, u)
                     self.__thunder.add_task(u, '%d_%s_%s_%d_%s' % (subject_id, title, p, url_count, filename))
                     url_count += 1
@@ -273,7 +293,7 @@ class VideoManager:
                         urls[i] = uf % tuple([i] * phs)
         return urls[1:]
 
-    def collect_subjects(self, sites, no_resources_file='', status=0):
+    def collect_subjects(self, sites, no_resources_file='', status=0, count=10):
         if os.path.exists(no_resources_file):
             with open(no_resources_file, 'r', encoding='utf-8') as fp:
                 no_resources_ids = [int(line.split(', ')[0]) for line in fp.read().strip('\n').split('\n')[1:]]
@@ -281,7 +301,7 @@ class VideoManager:
         else:
             no_resources_ids = []
             no_resources_fp = sys.stdout
-        results = [x for x in self.__get_subjects(archived=status) if x['id'] not in no_resources_ids]
+        results = [x for x in self.__get_subjects(archived=status) if x['id'] not in no_resources_ids][:count]
         total, success = len(results), 0
         for i, x in enumerate(results):
             logger.info('Collecting subjects: %d/%d', i + 1, total)
@@ -294,7 +314,7 @@ class VideoManager:
         no_resources_fp.close()
         return success
 
-    def collect_subject(self, subject_id: int, sites):
+    def collect_subject(self, subject_id: int, sites, **kwargs):
         """
         Search and download resources for subject specified by id. There  steps as commented.
         :param subject_id:
@@ -304,7 +324,7 @@ class VideoManager:
         if result is None:
             logger.info('No subject with id %d', subject_id)
             return False
-        r = self.__collect_subject(result, sites)
+        r = self.__collect_subject(result, sites, **kwargs)
         return r
 
     def archive(self, all_downloaded=False):
@@ -319,8 +339,9 @@ class VideoManager:
             subject_id = subject['id']
             if archived:
                 if subject['subtype'] == 'movie':
-                    if weight_video_file(archived, [int(re.findall(r'\d+', d)[0]) for d in subject['durations']]) < 0:
-                        logger.warning('Unqualified video file: %s', archived)
+                    if weight_video_file(archived, subject['durations']) < 0:
+                        logger.info('Delete unqualified video file: %s, %s', archived, subject['alt'])
+                        base.del_to_recycle(archived)
                 if subject['archived'] != 1:
                     self.__update_subject(subject_id, archived=1, location=archived)
                     archived_count += 1
@@ -330,10 +351,10 @@ class VideoManager:
                 else:
                     pass
             elif subject['archived'] == 1:
-                self.__update_subject(subject_id, archived=0, location=None)
+                self.__update_subject(subject_id, ignore_none=False, archived=0, location=None)
                 unarchived_count += 1
             elif all_downloaded and subject['archived'] in (2, 3):
-                self.__update_subject(subject_id, archived=0)
+                self.__update_subject(subject_id, archived=4)
                 fail_downloading += 1
 
         logger.info('Archive subjects: %d added, %d updated, %d unarchived, %d failed downloading',
@@ -356,28 +377,38 @@ class VideoManager:
         """
         archived = 0
         for subject_id, names in groupby(sorted(os.listdir(self.__temp_dir)), key=lambda x: int(x.split('_')[0])):
-            names = list(names)
-            if any([os.path.splitext(x)[1] not in VIDEO_SUFFIXES for x in names]):
+            paths = [os.path.join(self.__temp_dir, x) for x in names]
+            video_paths = [x for x in paths if os.path.splitext(x)[1] in VIDEO_SUFFIXES]
+            if len(video_paths) == 0:
                 continue
             subject = self.__get_subject(id=subject_id)
-            durations = [int(re.findall(r'\d+', d)[0]) for d in subject['durations']]
-            path, filename = self.__get_location(subject)
             weights = []
-            for name in names:
-                weights.append((name, weight_video_file(os.path.join(self.__temp_dir, name), durations)))
+            for path in video_paths:
+                weight = weight_video_file(path, subject['durations'])
+                weights.append((path, weight))
+                logger.info('Weight file: %s, %.2f', path, weight)
             chosen = max(weights, key=lambda x: x[1])
-            if chosen[1] > 0:
-                ext = os.path.splitext(chosen[0])[1]
-                src = os.path.join(self.__temp_dir, chosen[0])
-                dst = os.path.join(path, filename + ext)
-                if not base.copy(src, dst):
-                    raise IOError
-                archived += 1
-                logger.info('Finished: %s', filename)
-            for name in names:
-                code, msg = base.del_to_recycle(os.path.join(self.__temp_dir, name))
+            if len(video_paths) < len(paths):
+                if chosen[1] < 90:
+                    continue
+            else:
+                if chosen[1] < 0:
+                    logger.warning('No qualified video file: %s', subject['title'])
+                    continue
+            # copy, delete
+            src = chosen[0]
+            ext = os.path.splitext(src)[1]
+            path, filename = self.__get_location(subject)
+            dst = os.path.join(path, filename + ext)
+            code = base.copy(src, dst)
+            if code != 0 and code != 1:
+                raise IOError
+            archived += 1
+            logger.info('Finished: %s', filename)
+            for path in paths:
+                code, msg = base.del_to_recycle(path)
                 if code != 0:
-                    logger.error('Failed to delete file: %s, %s', name, msg)
+                    logger.error('Failed to delete file: %s, %s', path, msg)
         logger.info('Finish archiving: %d success', archived)
 
     @staticmethod
@@ -422,7 +453,13 @@ class VideoManager:
             return None
         return results[0]
 
-    def __update_subject(self, item_id: int, **params):
+    def __update_subject(self, item_id: int, ignore_none=True, **kwargs):
+        params = {}
+        for k, v in kwargs.items():
+            if k in ['title', 'alt', 'status', 'tag_date', 'original_title', 'aka', 'subtype', 'languages', 'year', 'durations',
+                     'current_season', 'episodes_count', 'seasons_count', 'archived', 'location', 'source'] \
+                    and (not ignore_none or (ignore_none and v is not None)):
+                params[k] = v
         if not params or len(params) == 0:
             raise ValueError('No params to update')
         cursor = self.__con.cursor()
@@ -499,7 +536,7 @@ def remove_redundant_spaces(string):
         return re.sub(r'\s+', ' ', string.strip())
     if isinstance(string, list) or isinstance(string, tuple):
         for i, s in enumerate(string):
-            string[i] = re.sub(r'\s+', '', s.strip())
+            string[i] = re.sub(r'\s+', ' ', s.strip())
         return string
     raise ValueError
 
@@ -528,6 +565,8 @@ def weight_video(ext=None, movie_durations=None, size=-1, file_duration=-1):
     Size of the file will be compared to standard size computed based on given duration of the movie and standard kbps.
     The file will be excluded if its size is less than half of the standard size.
 
+    The file is a good one if weight is over 90.
+
     :param movie_durations: Unit: minute
     :param size: Unit: B
     :param file_duration: Unit: second
@@ -538,20 +577,24 @@ def weight_video(ext=None, movie_durations=None, size=-1, file_duration=-1):
         if ext not in VIDEO_SUFFIXES:
             return -1
         else:
-            ws.append(100 * (VIDEO_SUFFIXES.index(ext) + 1) / len(VIDEO_SUFFIXES))
-    if movie_durations is not None:
+            if ext in ('.mp4', '.mkv'):
+                ws.append(100)
+            else:
+                ws.append(50)
+    if len(movie_durations) > 0:
+        durations = [int(re.findall(r'\d+', d)[0]) for d in movie_durations]
         if file_duration >= 0:
-            for i, movie_duration in enumerate(sorted(movie_durations)):
-                if abs(movie_duration * 60 - file_duration) < 60:
-                    ws.append(100 * (i + 1) / len(movie_durations))
+            for i, duration in enumerate(sorted(durations)):
+                if abs(duration * 60 - file_duration) < 60:
+                    ws.append(100 * (i + 1) / len(durations))
                     break
-                if i == len(movie_durations) - 1:
-                    logger.warning('Error durations: %d, %s', file_duration // 60, ','.join([str(x) for x in movie_durations]))
+                if i == len(durations) - 1:
+                    logger.warning('Error durations: %.2f, %s', file_duration / 60, ','.join([str(x) for x in movie_durations]))
                     return -1
         if size >= 0:
-            target_size = int(sum(movie_durations) / len(movie_durations) * 7680 * standard_kbps)
+            target_size = int(sum(durations) / len(durations) * 7680 * standard_kbps)
             if size < (target_size // 2):
-                logger.warning('Too small file')
+                logger.warning('Too small file: %s, request: %s', print_size(size), print_size(target_size))
                 return -1
             elif size <= target_size:
                 ws.append(100 * (size / target_size))
@@ -562,6 +605,17 @@ def weight_video(ext=None, movie_durations=None, size=-1, file_duration=-1):
     if len(ws) == 0:
         return 0
     return sum(ws) / len(ws)
+
+
+def print_size(size):
+    """
+    :param size: Unit B
+    """
+    for u in ['B', 'KB', 'MB', 'GB']:
+        if size < 1024:
+            return '%.2f %s' % (size, u)
+        size /= 1024
+    return '%.2f TB' % size
 
 
 def separate_srt(src: str):

@@ -54,7 +54,7 @@ class VideoSearch(metaclass=abc.ABCMeta):
     def home(self):
         return self._scheme + '://' + self._netloc + '/'
 
-    def search(self, subject):
+    def search(self, subject, manual=False):
         """
         There are four steps to search resources:
         1. search resources by a specific key
@@ -78,12 +78,22 @@ class VideoSearch(metaclass=abc.ABCMeta):
                 continue
 
             # filter resources, keeping those matches key exactly or most similarly
-            for resource in resources:
-                names = self._parse_resource_name(resource['name'], subject['subtype'])
-                if len(matches & names) > 0:
-                    exact_resources.append(resource)
-                else:
-                    logger.info('Excluded resource: %s, %s', resource['name'], self._get_full_url(resource['href']))
+            if manual:
+                for x in resources:
+                    while True:
+                        c = input('%s, [y/n]: ' % x['name'])
+                        if c == 'y':
+                            exact_resources.append(x)
+                            break
+                        elif c == 'n':
+                            break
+            else:
+                for resource in resources:
+                    names = self._parse_resource_name(resource['name'], subject['subtype'])
+                    if len(matches & names) > 0:
+                        exact_resources.append(resource)
+                    else:
+                        logger.info('Excluded resource: %s, %s', resource['name'], self._get_full_url(resource['href']))
 
             # get download urls from the resources
             for resource in exact_resources:
