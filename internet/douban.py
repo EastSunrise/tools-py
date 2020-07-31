@@ -10,7 +10,9 @@ Json files in the 'douban' directory are examples  for each functions
 import json
 import os
 import re
-from urllib import parse, request
+from http.cookiejar import CookieJar
+from urllib import parse
+from urllib.request import HTTPCookieProcessor, build_opener, Request
 
 import bs4
 
@@ -33,6 +35,23 @@ class Douban:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36',
         }
         self.__pause = pause
+
+    def login(self, name=None, password=None):
+        url = 'https://accounts.douban.com/j/mobile/login/basic'
+        cookie = CookieJar()
+        handler = HTTPCookieProcessor(cookie)
+        opener = build_opener(handler)
+        with opener.open(Request(url, headers=self.__headers, method='POST'), data=parse.urlencode({
+            'ck': '',
+            'name': name,
+            'password': password,
+            'remember': False,
+            'ticket': ''
+        }).encode(encoding='utf-8')) as fp:
+            print(fp.read().decode())
+
+        for item in cookie:
+            print(item.name + "=" + item.value)
 
     def collect_my_movies(self, my_id, cookie, start_date=START_DATE):
         """
@@ -109,7 +128,7 @@ class Douban:
         :return:
         """
         url = self.__get_url('/subject/{id}', 'movie', path_params={'id': subject_id})
-        soup = get_soup(request.Request(url, headers=dict(self.__headers, Cookie=cookie), method='GET'), pause=self.__pause)
+        soup = get_soup(Request(url, headers=dict(self.__headers, Cookie=cookie), method='GET'), pause=self.__pause)
         wrapper = soup.find('div', id='wrapper')
         subject = {}
 
@@ -238,7 +257,7 @@ class Douban:
         url = self.__get_url('/people/{id}/{cat}', cat, {'id': user_id, 'cat': catalogs[cat]}, {'start': start})
         headers = {'Cookie': cookie}
         headers.update(self.__headers)
-        soup = get_soup(request.Request(url, headers=headers, method='GET'), pause=self.__pause)
+        soup = get_soup(Request(url, headers=headers, method='GET'), pause=self.__pause)
         results = []
         content = soup.find('div', id='content')
         for div in content.find('div', class_='article').find_all('div', class_='item'):
@@ -274,7 +293,7 @@ class Douban:
                              query_params={'sort': sort_by, 'start': start, 'mode': 'list'})
         headers = {'Cookie': cookie}
         headers.update(self.__headers)
-        soup = get_soup(request.Request(url, headers=headers, method='GET'), pause=self.__pause)
+        soup = get_soup(Request(url, headers=headers, method='GET'), pause=self.__pause)
         results = []
         for li in soup.find('ul', class_='list-view').find_all('li'):
             div = li.div.div
@@ -314,5 +333,5 @@ class Douban:
 
     def __get_result(self, relative_url, path_params=None, query_params=None):
         url = self.__get_url(path=relative_url, netloc_cat='api', path_params=path_params, query_params=query_params)
-        req = request.Request(url, headers=self.__headers, method='GET')
+        req = Request(url, headers=self.__headers, method='GET')
         return json.loads(do_request(req, self.__pause), encoding='utf-8')

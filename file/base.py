@@ -49,7 +49,7 @@ def copy(src, dst):
         return 1
     src_md5 = get_md5(src)
     logger.info('Copy file from %s to %s', src, dst)
-    code, msg = shell_file_operation(0, FO_COPY, src, dst, FOF_ALLOWUNDO)[0]
+    code, msg = shell_file_operation(0, FO_COPY, src, dst, FOF_ALLOWUNDO)
     if code != 0:
         logger.error('Failed to copy file: %s', msg)
         return code

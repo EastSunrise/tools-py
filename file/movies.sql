@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS movies
     current_season INTEGER,
     episodes_count INTEGER,
     seasons_count  INTEGER,
-    archived       INTEGER NOT NULL, -- 0: unarchived, 1: archived, 2: downloading, 3: temp
+    archived       INTEGER NOT NULL, -- 0: unarchived, 1: archived, 2: downloading, 3: temp, 4: fail to download, 5:
+    -- no resources
     location       TEXT,
     source         TEXT,
     last_update    TEXT    NOT NULL
