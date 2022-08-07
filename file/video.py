@@ -1,167 +1,121 @@
-""" Search and manage video resources
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
+"""
+Operations for video files.
 
 @Author Kingen
-@Date 2020/4/13
 """
+import functools
 import os
-import re
-from sqlite3 import register_converter, register_adapter, connect, Row, PARSE_DECLTYPES, OperationalError
 
-from internet.spider import IDM, pre_download, Thunder
-from utils import config
+from pymediainfo import MediaInfo
 
-logger = config.get_logger(__name__)
-
-VIDEO_SUFFIXES = ('.avi', '.rmvb', '.mp4', '.mkv')
-standard_kbps = 2500  # kb/s
+from file import cmp_filename
 
 
-class VideoManager:
-    CHINESE = ['汉语普通话', '普通话', '粤语', '闽南语', '河南方言', '贵州方言', '贵州独山话']
-    PROTOCOLS = ['http', 'ftp', 'ed2k', 'magnet', 'pan', 'torrent']
-    JUNK_SITES = ['yutou.tv', '80s.la', '80s.im', '2tu.cc', 'bofang.cc:', 'dl.y80s.net', '80s.bz', 'xubo.cc']
+class Ffmpeg:
+    def __init__(self, executable: str):
+        self.__executable = executable
 
-    def __init__(self, db, cdn, idm_exe='IDMan.exe') -> None:
-        register_adapter(list, lambda x: '[%s]' % '_'.join(x))
-        register_converter('list', lambda x: [] if x.decode('utf-8') == '[]' else x.decode('utf-8').strip('[]').split('_'))
-        self.__db = db
-        self.cdn = cdn
-        self.__idm = IDM(idm_exe, self.cdn)
-        self.__thunder = Thunder()
-        self.__temp_dir = os.path.join(self.cdn, 'Temp')
-        c = connect(self.__db, 30, detect_types=PARSE_DECLTYPES)
-        c.row_factory = Row
-        c.set_trace_callback(lambda x: logger.info('Execute: %s', x))
-        self.__con = c
-
-    @property
-    def cdn(self):
-        return self.__cdn
-
-    @cdn.setter
-    def cdn(self, cdn):
-        if not os.path.isdir(cdn):
-            cdn = './'
-        self.__cdn = cdn
-
-    def close(self):
-        self.__con.interrupt()
-        self.__con.close()
-
-    @staticmethod
-    def __compute_limit(left, right, uf, phs, is_equal):
-        while left <= right:
-            m = (left + right) >> 1
-            code, msg, args = pre_download(uf % tuple([m] * phs), pause=10)
-            if code == 200 ^ is_equal:
-                left = m + 1
-            else:
-                right = m - 1
-        return left
-
-    def __archived(self, subject):
+    def convert_format(self, dir_path: str, src_fmt: str, dest_fmt: str):
         """
-        :return: False if not archived, otherwise, filepath.
+        All files of the source format in the directory will be converted to target format with ffmpeg.
+        @param dir_path: directory where files will be converted
+        @param src_fmt: source format of files to be converted
+        @param dest_fmt: target format files converted to
+        @return:
         """
-        path, filename = self.__get_location(subject)
-        filepath = os.path.join(path, filename)
-        if subject['subtype'] == 'tv' and os.path.isdir(filepath):
-            if len([x for x in os.listdir(filepath) if re.match(r'E\d+', x)]) == subject['episodes_count']:
-                return filepath
-        if subject['subtype'] == 'movie' and os.path.isdir(path):
-            with os.scandir(path) as sp:
-                for f in sp:
-                    if f.is_file() and os.path.splitext(f.name)[0] == filename:
-                        return f.path
-        return False
-
-    def __get_subjects(self, **params):
-        cursor = self.__con.cursor()
-        if not params or len(params) == 0:
-            cursor.execute('SELECT * FROM movies')
-        else:
-            cursor.execute('SELECT * FROM movies WHERE %s' % (' AND '.join(['%s = :%s' % (k, k) for k in params])), params)
-        results = [dict(x) for x in cursor.fetchall()]
-        return results
-
-    def __update_subject(self, item_id: int, ignore_none=True, **kwargs):
-        params = {}
-        for k, v in kwargs.items():
-            if k in ['title', 'alt', 'status', 'tag_date', 'original_title', 'aka', 'subtype', 'languages', 'year', 'durations',
-                     'current_season', 'episodes_count', 'seasons_count', 'archived', 'location', 'source'] \
-                    and (not ignore_none or (ignore_none and v is not None)):
-                params[k] = v
-        if not params or len(params) == 0:
-            raise ValueError('No params to update')
-        cursor = self.__con.cursor()
-        cursor.execute('UPDATE movies SET last_update=DATETIME(\'now\'), %s WHERE id = %d'
-                       % (', '.join(['%s = :%s' % (k, k) for k in params]), item_id), params)
-        if cursor.rowcount != 1:
-            logger.error('Failed to update movie: %d', item_id)
-            self.__con.rollback()
-            raise OperationalError('Failed to update')
-        self.__con.commit()
-        return True
-
-    def __get_location(self, subject):
-        """
-        Get location for the subject
-        :param subject: required properties: subtype, languages, year, title, original_title
-        :return: (dir, name). The name returned doesn't include an extension.
-        """
-        subtype = 'Movies' if subject['subtype'] == 'movie' else 'TV' if subject['subtype'] == 'tv' else 'Unknown'
-        language = subject['languages'][0]
-        language = '华语' if language in self.CHINESE else language
-        filename = '%d_%s' % (subject['year'], subject['original_title'])
-        if subject['title'] != subject['original_title']:
-            filename += '_%s' % subject['title']
-        # disallowed characters: \/:*?"<>|
-        filename = re.sub(r'[\\/:*?"<>|]', '$', filename)
-        return os.path.join(self.cdn, subtype, language), filename
-
-    @staticmethod
-    def __rename_episode_default(src_name, season_name=None):
-        base_name, ext = os.path.splitext(src_name)
-        return ((season_name + ' ') if season_name is not None else '') + 'E' + re.findall(r'\d+', src_name)[0].zfill(2) + ext
-
-    @staticmethod
-    def __rename_season_default(src_name):
-        return 'S' + re.findall(r'\d+', src_name)[0].zfill(2)
-
-    def rename_tv(self, src_dir, relative=True, rename_episode=__rename_episode_default, rename_season=__rename_season_default):
-        """
-        Rename names of the files in tv series.
-        :param src_dir: source directory.
-        :param relative: if src_dir is relative path
-        :param rename_episode: function to rename each episode with the file name as the argument.
-        :param rename_season: function to rename each season if it has more than one seasons.
-        """
-        if relative:
-            src_dir = os.path.join(self.__cdn, src_dir)
-        if not os.path.exists(src_dir):
-            print("Source directory doesn't exist.")
-            return
-
-        for filename in os.listdir(src_dir):
-            filepath = os.path.join(src_dir, filename)
-            if os.path.isfile(filepath):
-                dst_name = rename_episode(src_name=filename)
-                dst_path = os.path.join(src_dir, dst_name)
-                print("Rename from {} to {}.".format(filepath, dst_path))
-                os.rename(filepath, dst_path)
-            else:
-                dst_season_name = rename_season(src_name=filename)
-                for episode_name in os.listdir(filepath):
-                    episode_path = os.path.join(filepath, episode_name)
-                    dst_episode_name = rename_episode(src_name=episode_name, season_name=dst_season_name)
-                    dst_episode_path = os.path.join(filepath, dst_episode_name)
-                    print("Rename from {} to {}.".format(episode_path, dst_episode_path))
-                    os.rename(episode_path, dst_episode_path)
-                dst_season_path = os.path.join(src_dir, dst_season_name)
-                print("Rename directory from {} to {}.".format(filepath, dst_season_path))
-                os.rename(filepath, dst_season_path)
+        src_ext = '.' + src_fmt.upper()
+        for filename in os.listdir(dir_path):
+            basename, ext = os.path.splitext(filename)
+            if ext.upper() != src_ext:
+                continue
+            filepath = os.path.join(dir_path, filename)
+            dest_path = os.path.join(dir_path, f"{basename}.{dest_fmt}")
+            print(os.popen(f'"{self.__executable}" -i "{filepath}" -c copy "{dest_path}"').read())
 
 
-class BadVideoFileError(OSError):
-    def __init__(self, *args: object) -> None:
-        super().__init__(*args)
+def rename_season_episodes(season_dir: str):
+    """
+    Formats filenames of episodes in order.
+    """
+    files = os.listdir(season_dir)
+    files.sort(key=functools.cmp_to_key(cmp_filename))
+    pat = "E%02d" if len(files) >= 10 else "E%d"
+    pairs = []
+    for i, filename in enumerate(files):
+        src = os.path.join(season_dir, filename)
+        if os.path.isdir(src):
+            raise FileExistsError("Unexpected directory")
+        suffix = os.path.splitext(filename)[-1]
+        dest = os.path.join(season_dir, (pat % (i + 1)) + suffix)
+        pairs.append([src, dest])
+    for pair in pairs:
+        print(f'Renaming "{pair[0]}" to "{pair[1]}"')
+    print("Press enter or input 'Y/y' to execute, otherwise quit:")
+    yes = input()
+    if "Y" == yes or "y" == yes or "" == yes:
+        for pair in pairs:
+            os.rename(pair[0], pair[1])
+        print(f"{len(pairs)} files are renamed")
+    else:
+        print("No file is renamed")
+
+
+def rename_series_episodes(series_dir: str):
+    """
+    Formats filenames of episodes within seasons.
+    """
+    for dirname in os.listdir(series_dir):
+        dir_path = os.path.join(series_dir, dirname)
+        if os.path.isdir(dir_path):
+            rename_season_episodes(dir_path)
+            print("Press any key to continue:")
+            input()
+
+
+def separate_srt(filepath: str):
+    """
+    Separates the .srt file with two languages to separated files.
+    @param filepath: the path of the source file. Every 4 lines form a segment and segments are split by a space line.
+    """
+    if os.path.isfile(filepath) and filepath.lower().endswith('.srt'):
+        root, ext = os.path.splitext(filepath)
+        with open(filepath, mode='r', encoding='utf-8') as fp:
+            with open(root + '_1' + ext, 'w', encoding='utf-8') as f1:
+                with open(root + '_2' + ext, 'w', encoding='utf-8') as f2:
+                    segment = []
+                    for line in fp.readlines():
+                        if line != '\n':
+                            segment.append(line)
+                        else:
+                            if len(segment) != 4:
+                                print(f'Special lines in No. {segment[0]}')
+                            f1.writelines([
+                                segment[0], segment[1], segment[2], '\n'
+                            ])
+                            f2.writelines([
+                                segment[0], segment[1], segment[3], '\n'
+                            ])
+                            segment = []
+
+
+def get_duration(filepath):
+    media_info = MediaInfo.parse(filepath)
+    tracks = dict([(x.track_type, x) for x in media_info.tracks])
+    d = tracks['General'].duration
+    if isinstance(d, int):
+        return d
+    if 'Video' in tracks:
+        d = tracks['Video'].duration
+        if isinstance(d, int):
+            return d
+    raise IOError('Duration Not Found')
+
+
+def print_size(size: int):
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if size < 1024:
+            return '%.2f %s' % (size, unit)
+        size /= 1024
+    return '%.2f %s' % (size, 'PB')
