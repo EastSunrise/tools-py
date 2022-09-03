@@ -1,11 +1,7 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 """
-@Description todo
-@Module __init__.py
+Basic operations for games.
 
 @Author Kingen
-@Date 2019/9/29
-@Version 1.0
 """
-

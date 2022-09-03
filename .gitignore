@@ -127,7 +127,7 @@ dmypy.json
 
 # idea
 .idea/*
-/file/kugou/
+/tmp/file/kugou/
 
 # vscode
 .vscode/*

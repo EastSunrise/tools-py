@@ -1,82 +1,80 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 """
-@Description 数据库操作模块
-@Module oracle
+Generates SQL.
 
 @Author Kingen
-@Date 2019/8/27
-@Version 1.0
 """
-
+import logging
+import os.path
 from enum import Enum
+from tkinter import filedialog
+from typing import List
 
-import cx_Oracle
+import xlrd
+from cx_Oracle import Connection
 
-from generator.template.live_template import QueryColumns
-from generator.util.config import CONFIG, LOGGER
-from generator.util.enums import JavaType
+from dev.generator import JavaType
+from dev.generator.template import QueryColumns
 
 
-class Database(Enum):
+class TableDesigner:
+    field_name = "列名",
+    field_desc = "注释",
+    data_type = "类型",
+    is_null = "是否可空",
+    is_primary_key = "主键",
+    is_unique = "唯一索引",
+    is_index = "查询索引",
+    is_auto_increment = "是否自增"
+
+
+def generate_table_creation(filepath: str, db_name: str) -> List[str]:
     """
-    数据库枚举
+    Reads a tables-design document to generate table creation statements.
     """
-    KXD = CONFIG.parser['db_kxd']
-    lol = 'lol'
+    if not os.path.isfile(filepath):
+        filepath = filedialog.askopenfilename()
+    if not filepath:
+        raise ValueError("Please select a file")
+    workbook = xlrd.open_workbook(filepath)
+    sql_tables = []
+    for sheet_index, sheet in enumerate(workbook.sheets()):
+        sheet_name = sheet.name.lower()
+        if sheet_index < 1 or sheet.nrows < 2:
+            continue
+        table_name = db_name + "." + sheet_name
+        sql_drop = f"drop table if exists {table_name};"
+
+        columns = [sheet.col_values(i) for i in range(sheet.ncols)]
+        fields = dict([(col[0], col) for col in columns])
+
+        sql_fields = []
+        primary_keys = []
+        for index in range(1, sheet.nrows):
+            field_name = fields[TableDesigner.field_name][index].lower()
+
+            field_parts = [
+                field_name,
+                fields[TableDesigner.data_type][index].lower(),
+                'auto_increment' if fields[TableDesigner.is_auto_increment][index] == 'Y' else '',
+                "not null" if fields[TableDesigner.is_null][index] == "N" else "null",
+                'comment \'' + fields[TableDesigner.field_desc][index] + '\''
+            ]
+            sql_fields.append("\t" + " ".join(field_parts))
+
+            if fields[TableDesigner.is_primary_key][index] == "Y":
+                primary_keys.append(field_name)
+
+        sql_fields.append('\tprimary key (' + primary_keys[0] + ')')
+        sql_create = "create table " + table_name + "(\n" + ",\n".join(sql_fields) + "\n);"
+        sql_tables.append("\n".join([sql_drop, sql_create]))
+    return sql_tables
 
 
-class OracleHelper:
-    """
-    访问数据库工具
-    """
-
-    def __init__(self, database=Database.KXD):
-        self.__user = database.value['user']
-        self.__password = database.value['password']
-        self.__database = 'MyDB'  # set in the file tnsnames.ora
-        self.__connection = cx_Oracle.connect(self.__user, self.__password, "MyDB", encoding='UTF-8')
-
-    def commit(self):
-        LOGGER.info("COMMIT.")
-        self.__connection.commit()
-
-    def rollback(self):
-        LOGGER.info("ROLLBACK.")
-        self.__connection.rollback()
-
-    def execute(self, sql, commit=True):
-        """
-        执行sql
-        :param sql: sql语句
-        :param commit: 是否提交
-        :return: 执行结果
-        """
-        with self.__connection.cursor() as cursor:
-            LOGGER.info("Executing sql: " + sql)
-            result = cursor.execute(sql).fetchall()
-            LOGGER.info("Executed result: " + str(result))
-            if commit:
-                self.commit()
-            return result
-
-    def transaction(self, *sqls) -> bool:
-        """
-        将多个sql语句当做事务执行
-        :param sqls: sql语句列表
-        :return: 是否完成
-        """
-        if not sqls:
-            return False
-        for sql in sqls:
-            try:
-                self.execute(sql, False)
-            except cx_Oracle.DatabaseError as error:
-                LOGGER.error(error)
-                self.rollback()
-                return False
-        self.commit()
-        return True
+class OracleProxy:
+    def __init__(self, conn: Connection):
+        self.__conn = conn
 
     def select(self, table_name, result=None, parameter_dict=None, order_dict=None, num_rows=None) -> list:
         """
@@ -89,8 +87,7 @@ class OracleHelper:
         :return:
         """
         if not table_name:
-            LOGGER.info("表{}不存在".format(table_name))
-            return []
+            raise ValueError(f"表'{table_name}'不存在")
         if result is None:
             result = {}
         if order_dict is None:
@@ -117,8 +114,8 @@ class OracleHelper:
             sql += " WHERE " + " AND ".join(sql_params)
         if len(sql_orders) > 0:
             sql += " ORDER BY " + ",".join(sql_orders)
-        with self.__connection.cursor() as cursor:
-            LOGGER.info("Selecting sql: " + sql)
+        with self.__conn.cursor() as cursor:
+            logging.info("Selecting sql: " + sql)
             cursor.execute(sql)
             if num_rows is None:
                 rows = cursor.fetchall()
@@ -141,7 +138,7 @@ class OracleHelper:
                         field_dict[key] = row[i]
                         i += 1
                     results.append(field_dict)
-            LOGGER.info("Selected result: " + str(results))
+            logging.info("Selected result: " + str(results))
             return results
 
     def select_column_dict(self, table_name) -> dict:
@@ -157,18 +154,19 @@ class OracleHelper:
                 'is_primary_key': True
             }
         """
-        sql = QueryColumns().format(table_name)
-        rows = self.execute(sql, False)
-        results = {}
-        for column_name, data_type, data_length, nullable, comment, constraint_name in rows:
-            results[column_name] = {
-                'data_type': data_type,
-                'data_length': data_length,
-                'nullable': True if nullable == 'Y' else False,
-                'comment': comment,
-                'is_primary_key': True if constraint_name else False
-            }
-        return results
+        sql = QueryColumns(table_name).format()
+        with self.__conn.cursor() as cursor:
+            rows = cursor.execute(sql).fetchall()
+            results = {}
+            for column_name, data_type, data_length, nullable, comment, constraint_name in rows:
+                results[column_name] = {
+                    'data_type': data_type,
+                    'data_length': data_length,
+                    'nullable': True if nullable == 'Y' else False,
+                    'comment': comment,
+                    'is_primary_key': True if constraint_name else False
+                }
+            return results
 
 
 class TypeHandler(object):

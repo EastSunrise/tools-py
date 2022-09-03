@@ -7,12 +7,24 @@ Basic operations for files.
 """
 import hashlib
 import os
+import shutil
 from typing import List
 
 from pypinyin.constants import Style
 from pypinyin.core import pinyin
 
 import common
+
+
+def flat_dir(root: str):
+    for dirname in os.listdir(root):
+        dirpath = os.path.join(root, dirname)
+        if os.path.isdir(dirpath):
+            for filename in os.listdir(dirpath):
+                filepath = os.path.join(dirpath, filename)
+                dst = shutil.move(filepath, root)
+                print(f'{filepath} is moved to {dst}')
+            os.rmdir(dirpath)
 
 
 def find_duplicate(dst_dir: str) -> List[List[str]]:

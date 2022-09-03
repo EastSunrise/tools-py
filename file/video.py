@@ -6,6 +6,7 @@ Operations for video files.
 @Author Kingen
 """
 import functools
+import math
 import os
 
 from pymediainfo import MediaInfo
@@ -35,13 +36,13 @@ class Ffmpeg:
             print(os.popen(f'"{self.__executable}" -i "{filepath}" -c copy "{dest_path}"').read())
 
 
-def rename_season_episodes(season_dir: str):
+def rename_season_episodes(season_dir: str, header='Ep'):
     """
     Formats filenames of episodes in order.
     """
     files = os.listdir(season_dir)
     files.sort(key=functools.cmp_to_key(cmp_filename))
-    pat = "E%02d" if len(files) >= 10 else "E%d"
+    pat = f"{header}%0{int(math.log10(len(files))) + 1}d"
     pairs = []
     for i, filename in enumerate(files):
         src = os.path.join(season_dir, filename)
@@ -62,14 +63,14 @@ def rename_season_episodes(season_dir: str):
         print("No file is renamed")
 
 
-def rename_series_episodes(series_dir: str):
+def rename_series_episodes(series_dir: str, header='Ep'):
     """
     Formats filenames of episodes within seasons.
     """
     for dirname in os.listdir(series_dir):
         dir_path = os.path.join(series_dir, dirname)
         if os.path.isdir(dir_path):
-            rename_season_episodes(dir_path)
+            rename_season_episodes(dir_path, header)
             print("Press any key to continue:")
             input()
 

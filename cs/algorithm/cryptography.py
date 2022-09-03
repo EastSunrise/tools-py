@@ -1,4 +1,7 @@
-""" Some cryptography algorithms
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
+"""
+Some cryptography algorithms
 
 @Author Kingen
 """
@@ -6,10 +9,6 @@ import random
 
 
 class RSA:
-    """
-    RSA
-    """
-
     def __init__(self):
         p, q = get_prime(), get_prime()
         while p == q:

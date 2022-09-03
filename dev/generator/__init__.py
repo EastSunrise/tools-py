@@ -1,12 +1,9 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 """
-@Description 枚举模块
-@Module enums
+Generates codes.
 
 @Author Kingen
-@Date 2019/8/29
-@Version 1.0
 """
 from enum import Enum
 
@@ -83,13 +80,53 @@ class JavaType(Enum):
         return ResultCellType.RString
 
 
-class Module(Enum):
+def convert_underline_to_upper_camel(under_str: str, separator='_') -> str:
     """
-    类型所属模块枚举
+    Converts a string from under_score_case to CamelCase.
     """
-    Root = 'service'
-    Client = 'client'
-    Common = 'common'
-    Dmo = 'dmo'
-    Service = 'service-service'
-    War = 'war'
+    arr = under_str.lower().split(separator)
+    return ''.join([x[0].upper() + x[1:] for x in arr])
+
+
+def convert_camel_to_lower_underline(camel_str: str, separator='_') -> str:
+    """
+    Converts a string from CamelCase to under_score_case.
+    """
+    underline = ''
+    for index, char in enumerate(camel_str):
+        if index > 0 and char.isupper():
+            underline += separator
+        underline += char.lower()
+    return underline
+
+
+def convert_camel_to_upper_underline(camel_str: str, separator='_') -> str:
+    """
+    Converts a string from CamelCase to UNDER_SCORE_CASE.
+    """
+    underline = ''
+    for index, char in enumerate(camel_str):
+        if index > 0 and char.isupper():
+            underline += separator
+        underline += char.upper()
+    return underline
+
+
+def lower_first(text: str) -> str:
+    """
+    Lowers the first letter.
+    """
+    if not text or len(text) == 0:
+        return text
+    if text[0].isalpha():
+        return text[0].lower() + text[1:]
+
+
+def upper_first(text: str) -> str:
+    """
+    Uppers the first letter.
+    """
+    if not text or len(text) == 0:
+        return text
+    if text[0].isalpha():
+        return text[0].upper() + text[1:]
