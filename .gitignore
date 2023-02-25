@@ -127,13 +127,10 @@ dmypy.json
 
 # idea
 .idea/*
-/tmp/file/kugou/
 
 # vscode
 .vscode/*
 
 # data
 *.json
-
-# private
-/private/
+**/tmp/**

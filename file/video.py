@@ -8,6 +8,8 @@ Operations for video files.
 import functools
 import math
 import os
+import re
+from re import Pattern
 
 from pymediainfo import MediaInfo
 
@@ -36,21 +38,39 @@ class Ffmpeg:
             print(os.popen(f'"{self.__executable}" -i "{filepath}" -c copy "{dest_path}"').read())
 
 
-def rename_season_episodes(season_dir: str, header='Ep'):
+def rename_season_episodes(season_dir: str, prefix='Ep', pattern=None):
     """
     Formats filenames of episodes in order.
     """
+    if isinstance(pattern, str):
+        pattern = re.compile(pattern)
+    elif not isinstance(pattern, Pattern):
+        pattern = None
     files = os.listdir(season_dir)
     files.sort(key=functools.cmp_to_key(cmp_filename))
-    pat = f"{header}%0{int(math.log10(len(files))) + 1}d"
+    episode = f"{prefix}%0{int(math.log10(len(files))) + 1}d"
     pairs = []
     for i, filename in enumerate(files):
         src = os.path.join(season_dir, filename)
         if os.path.isdir(src):
             raise FileExistsError("Unexpected directory")
-        suffix = os.path.splitext(filename)[-1]
-        dest = os.path.join(season_dir, (pat % (i + 1)) + suffix)
-        pairs.append([src, dest])
+        basename, ext = os.path.splitext(filename)
+        if pattern:
+            matcher = pattern.fullmatch(basename)
+            if not matcher:
+                continue
+            dst_name = f"{episode % int(matcher.group('e'))}"
+            try:
+                name = matcher.group('n')
+            except IndexError:
+                name = None
+            if name and len(name.strip()) > 0:
+                dst_name += '. ' + name
+        else:
+            dst_name = episode % (i + 1)
+        dst = os.path.join(season_dir, dst_name + ext)
+        if src != dst:
+            pairs.append([src, dst])
     for pair in pairs:
         print(f'Renaming "{pair[0]}" to "{pair[1]}"')
     print("Press enter or input 'Y/y' to execute, otherwise quit:")
@@ -63,14 +83,14 @@ def rename_season_episodes(season_dir: str, header='Ep'):
         print("No file is renamed")
 
 
-def rename_series_episodes(series_dir: str, header='Ep'):
+def rename_series_episodes(series_dir: str, prefix='Ep', pattern=None):
     """
     Formats filenames of episodes within seasons.
     """
     for dirname in os.listdir(series_dir):
         dir_path = os.path.join(series_dir, dirname)
         if os.path.isdir(dir_path):
-            rename_season_episodes(dir_path, header)
+            rename_season_episodes(dir_path, prefix, pattern)
             print("Press any key to continue:")
             input()
 

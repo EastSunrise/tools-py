@@ -27,14 +27,17 @@ def flat_dir(root: str):
             os.rmdir(dirpath)
 
 
-def find_duplicate(dst_dir: str) -> List[List[str]]:
+def find_duplicate(dst_dirs) -> List[List[str]]:
     """
-    @param dst_dir: directory to filter
+    @param dst_dirs: a directory or directories to filter, any one should not be subdirectory of another one
     """
     all_files = []
-    for dirpath, dirnames, filenames in os.walk(dst_dir):
-        for filename in filenames:
-            all_files.append(os.path.join(dirpath, filename))
+    if isinstance(dst_dirs, str):
+        dst_dirs = [dst_dirs]
+    for dst_dir in dst_dirs:
+        for dirpath, dirnames, filenames in os.walk(dst_dir):
+            for filename in filenames:
+                all_files.append(os.path.join(dirpath, filename))
 
     same_files = []
     by_size = common.group_by(all_files, lambda x: os.path.getsize(x))
