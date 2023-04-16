@@ -6,6 +6,8 @@ Common functions.
 @Author Kingen
 """
 import logging
+from datetime import date, datetime
+from json import JSONEncoder
 from typing import Iterable, Callable, Dict, Any, List
 
 
@@ -23,7 +25,7 @@ def group_by(it: Iterable, key_func: Callable, value_func=lambda x: x) -> Dict[A
 def create_logger(name: str, level=logging.INFO, console=True, file_path=None):
     logger = logging.getLogger(name)
     logger.setLevel(level)
-    fmt = logging.Formatter(fmt='%(asctime)s %(levelname)s [%(filename)s:%(lineno)d]: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    fmt = logging.Formatter(fmt='%(asctime)s %(levelname)s %(threadName)s [%(filename)s:%(lineno)d]: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     if console:
         sh = logging.StreamHandler()
         sh.setFormatter(fmt)
@@ -52,3 +54,12 @@ class OptionalValue:
     @property
     def value(self):
         return self.__value
+
+
+class ComplexEncoder(JSONEncoder):
+    def default(self, o: Any) -> str:
+        if isinstance(o, date):
+            return str(o)
+        if isinstance(o, datetime):
+            return o.strftime('%Y-%m-%d %H:%M:%S')
+        return str(o)

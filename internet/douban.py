@@ -5,8 +5,9 @@ Crawls data from douban.com
 
 @Author Kingen
 """
+from bs4 import BeautifulSoup
 
-from internet import get_soup
+from internet import do_get
 
 
 class Douban:
@@ -24,7 +25,7 @@ class Douban:
                 return items
 
     def __get_items(self, path: str, start=0):
-        soup = get_soup(f"{self.__host}{path}", params={'start': start})
+        soup = BeautifulSoup(do_get(f"{self.__host}{path}", params={'start': start}), 'html.parser')
         items = [{
             'title': li.select_one('.title').text.strip()
         } for li in soup.select('#content li')]

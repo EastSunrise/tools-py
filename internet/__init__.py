@@ -8,6 +8,7 @@ Basic operations for Internet.
 import json
 import os
 from typing import Optional
+from urllib.parse import urlencode
 
 import pandas
 import requests
@@ -25,66 +26,86 @@ base_headers = {
 
 
 class BaseSite:
-    def __init__(self, host, headers=None, cache_dir: Optional[str] = None):
-        self.__host = host
+    def __init__(self, home, name=None, headers=None, cache_dir: Optional[str] = None, encoding='utf-8'):
+        url = parse_url(home)
+        self.__hostname = url.hostname
+        self.__name = name if name else self.__hostname
+        self.__root_uri = '%s://%s' % (url.scheme, url.netloc)
         self.__headers = base_headers if headers is None else headers
-        self.__cache_dir = cache_dir if cache_dir is not None else os.path.join(os.getenv('TEMP'), parse_url(host).host)
+        self.__encoding = encoding
+        self.__cache_dir = cache_dir if cache_dir is not None else os.path.join(os.getenv('TEMP'), self.__hostname)
 
     @property
-    def host(self):
-        return self.__host
+    def hostname(self):
+        return self.__hostname
+
+    @property
+    def name(self):
+        return self.__name
+
+    @property
+    def root_uri(self):
+        return self.__root_uri
 
     @property
     def cache_dir(self):
         return self.__cache_dir
 
-    def _get_soup(self, path, cache=False):
+    def get_soup(self, path, params=None, cache=False):
         if cache:
-            return get_soup(f'{self.host}{path}', headers=self.__headers, cache_path=f'{self.__cache_dir}{path}')
-        return get_soup(f'{self.host}{path}', headers=self.__headers)
+            filepath = self.cache_dir + path
+            if params:
+                filepath += '?' + urlencode(params)
+            html = run_cacheable(filepath, lambda: self.__do_get(path, params), self.__encoding)
+            return BeautifulSoup(html, 'html.parser')
+        return BeautifulSoup(self.__do_get(path, params), 'html.parser')
+
+    def get_json(self, path, params=None, cache=False):
+        if cache:
+            filepath = self.cache_dir + path
+            if params:
+                filepath += '?' + urlencode(params)
+            return json.loads(run_cacheable(filepath, lambda: self.__do_get(path, params), self.__encoding))
+        return json.loads(self.__do_get(path, params))
+
+    def __do_get(self, path, params):
+        return do_get(f'{self.root_uri}{path}', params, self.__headers, self.__encoding)
 
 
-def get_soup(url: str, params=None, charset='utf-8', headers=None, cache_path=None) -> BeautifulSoup:
+def do_get(url: str, params=None, headers=None, charset='utf-8') -> str:
     """
     Does request and returns a soup of the page.
     """
-
-    def get_content():
-        if params and len(params) > 0:
-            log.info(f'Getting for {url} with {params}')
-        else:
-            log.info(f'Getting for {url}')
-        return requests.get(url, params=params, headers=headers).content.decode(charset)
-
     if headers is None:
         headers = base_headers
-    if cache_path is None:
-        return BeautifulSoup(get_content(), 'html.parser')
-    return BeautifulSoup(get_cache(cache_path, 'html', get_content), 'html.parser')
+    if params and len(params) > 0:
+        log.info(f'Getting for {url} with {params}')
+    else:
+        log.info(f'Getting for {url}')
+    return requests.get(url, params=params, headers=headers).content.decode(charset, errors='ignore')
 
 
-def get_cache(filepath, mode, do_func, *args, encoding='utf-8'):
+def run_cacheable(filepath, do_func, encoding='utf-8'):
     """
-    Retrieves data within file cache.
-    @param filepath: filepath to store cache
-    @param mode: type of data
-    @param do_func: actual function to retrieve data which is called when there is no cache
-    @param args: args for actual function
+    Retrieves data directly or from file caches.
+    @param filepath: filepath to store caches
+    @param do_func: actual function to retrieve data
     @param encoding: encoding for the cache file
     """
     for ch in ['?']:
         filepath = filepath.replace(ch, f'#{ord(ch)}')
     filepath.rstrip('/')
+    mode = str(os.path.splitext(filepath)[-1]).lower()
     if os.path.exists(filepath):
         log.info(f'Reading {filepath}')
-        if mode == 'csv':
+        if mode == '.csv':
             if os.path.getsize(filepath) <= 5:
                 return []
             return pandas.read_csv(filepath, encoding=encoding).to_dict('records')
-        if mode == 'json':
+        if mode == '.json':
             with open(filepath, 'r', encoding=encoding) as fp:
                 return json.load(fp)
-        if mode == 'html':
+        if mode in ['.html', '.htm', '.txt', '']:
             with open(filepath, 'r', encoding=encoding) as fp:
                 return fp.read()
         raise ValueError('Unknown mode')
@@ -92,15 +113,15 @@ def get_cache(filepath, mode, do_func, *args, encoding='utf-8'):
     if not os.path.exists(dirpath):
         os.makedirs(dirpath)
 
-    data = do_func(*args)
+    data = do_func()
 
     log.info(f'Writing {filepath}')
-    if mode == 'csv':
+    if mode == '.csv':
         DataFrame(data).to_csv(filepath, index=False, encoding=encoding)
-    elif mode == 'json':
+    elif mode == '.json':
         with open(filepath, 'w', encoding=encoding) as fp:
-            json.dump(data, fp, ensure_ascii=False)
-    elif mode == 'html':
+            json.dump(data, fp, ensure_ascii=False, cls=common.ComplexEncoder)
+    elif mode in ['.html', '.htm', '.txt', '']:
         with open(filepath, 'w', encoding=encoding) as fp:
             fp.write(data)
     else:
