@@ -34,6 +34,7 @@ class BaseSite:
         self.__headers = base_headers if headers is None else headers
         self.__encoding = encoding
         self.__cache_dir = cache_dir if cache_dir is not None else os.path.join(os.getenv('TEMP'), self.__hostname)
+        self.__session = requests.session()
 
     @property
     def hostname(self):
@@ -56,7 +57,7 @@ class BaseSite:
             filepath = self.cache_dir + path
             if params:
                 filepath += '?' + urlencode(params)
-            html = run_cacheable(filepath, lambda: self.__do_get(path, params), self.__encoding)
+            html = run_cacheable(filepath, lambda: self.__do_get(path, params), self.__encoding, ext='.html')
             return BeautifulSoup(html, 'html.parser')
         return BeautifulSoup(self.__do_get(path, params), 'html.parser')
 
@@ -65,47 +66,46 @@ class BaseSite:
             filepath = self.cache_dir + path
             if params:
                 filepath += '?' + urlencode(params)
-            return json.loads(run_cacheable(filepath, lambda: self.__do_get(path, params), self.__encoding))
+            return json.loads(run_cacheable(filepath, lambda: self.__do_get(path, params), self.__encoding, ext='.json'))
         return json.loads(self.__do_get(path, params))
 
     def __do_get(self, path, params):
-        return do_get(f'{self.root_uri}{path}', params, self.__headers, self.__encoding)
+        if params and len(params) > 0:
+            log.info('Getting for %s%s with %s', self.root_uri, path, params)
+        else:
+            log.info('Getting for %s%s', self.root_uri, path)
+        response = self.__session.get(self.root_uri + path, params=params, headers=self.__headers)
+        return response.content.decode(self.__encoding, errors='ignore')
 
 
-def do_get(url: str, params=None, headers=None, charset='utf-8') -> str:
-    """
-    Does request and returns a soup of the page.
-    """
-    if headers is None:
-        headers = base_headers
-    if params and len(params) > 0:
-        log.info(f'Getting for {url} with {params}')
-    else:
-        log.info(f'Getting for {url}')
-    return requests.get(url, params=params, headers=headers).content.decode(charset, errors='ignore')
+CSV_EXTENSIONS = ['.csv']
+JSON_EXTENSIONS = ['.json']
+PLAIN_EXTENSIONS = ['.html', '.htm', '.txt', '.php', '']
 
 
-def run_cacheable(filepath, do_func, encoding='utf-8'):
+def run_cacheable(filepath, do_func, encoding='utf-8', ext: str = None):
     """
     Retrieves data directly or from file caches.
     @param filepath: filepath to store caches
     @param do_func: actual function to retrieve data
     @param encoding: encoding for the cache file
+    @param ext: extension of the file
     """
     for ch in ['?']:
         filepath = filepath.replace(ch, f'#{ord(ch)}')
     filepath.rstrip('/')
-    mode = str(os.path.splitext(filepath)[-1]).lower()
+    if ext is None:
+        ext = str(os.path.splitext(filepath)[-1]).lower()
     if os.path.exists(filepath):
         log.info(f'Reading {filepath}')
-        if mode == '.csv':
+        if ext in CSV_EXTENSIONS:
             if os.path.getsize(filepath) <= 5:
                 return []
             return pandas.read_csv(filepath, encoding=encoding).to_dict('records')
-        if mode == '.json':
+        if ext in JSON_EXTENSIONS:
             with open(filepath, 'r', encoding=encoding) as fp:
                 return json.load(fp)
-        if mode in ['.html', '.htm', '.txt', '']:
+        if ext in PLAIN_EXTENSIONS:
             with open(filepath, 'r', encoding=encoding) as fp:
                 return fp.read()
         raise ValueError('Unknown mode')
@@ -116,12 +116,12 @@ def run_cacheable(filepath, do_func, encoding='utf-8'):
     data = do_func()
 
     log.info(f'Writing {filepath}')
-    if mode == '.csv':
+    if ext in CSV_EXTENSIONS:
         DataFrame(data).to_csv(filepath, index=False, encoding=encoding)
-    elif mode == '.json':
+    elif ext in JSON_EXTENSIONS:
         with open(filepath, 'w', encoding=encoding) as fp:
             json.dump(data, fp, ensure_ascii=False, cls=common.ComplexEncoder)
-    elif mode in ['.html', '.htm', '.txt', '']:
+    elif ext in PLAIN_EXTENSIONS:
         with open(filepath, 'w', encoding=encoding) as fp:
             fp.write(data)
     else:

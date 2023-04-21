@@ -5,15 +5,14 @@ Crawls data from douban.com
 
 @Author Kingen
 """
-from bs4 import BeautifulSoup
 
-from internet import do_get
+from internet import BaseSite
 
 
-class Douban:
+class Douban(BaseSite):
 
     def __init__(self):
-        self.__host = 'https://movie.douban.com'
+        super().__init__('https://movie.douban.com')
 
     def movie_top250(self, start=0):
         items = []
@@ -25,7 +24,7 @@ class Douban:
                 return items
 
     def __get_items(self, path: str, start=0):
-        soup = BeautifulSoup(do_get(f"{self.__host}{path}", params={'start': start}), 'html.parser')
+        soup = self.get_soup(path, params={'start': start})
         items = [{
             'title': li.select_one('.title').text.strip()
         } for li in soup.select('#content li')]
