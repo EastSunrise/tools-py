@@ -6,15 +6,17 @@ Adult sites and resources.
 @Author Kingen
 """
 import abc
-import os.path
+from datetime import date
 from typing import List, Dict
 
-from internet import BaseSite, run_cacheable
+from internet import BaseSite
 
+start_date = date(1900, 1, 1)
 JA_ALPHABET = ['a', 'k', 's', 't', 'n', 'h', 'm', 'y', 'r', 'w']
 
 
 class AdultSite(BaseSite):
+
     def __init__(self, home, **kwargs):
         super().__init__(home, **kwargs)
 
@@ -22,37 +24,25 @@ class AdultSite(BaseSite):
     def list_actors(self) -> List[Dict]:
         raise NotImplementedError
 
-    @abc.abstractmethod
     def list_works(self) -> List[Dict]:
-        raise NotImplementedError
+        return self.list_works_since()
 
-    def export(self, dirpath):
-        run_cacheable(os.path.join(dirpath, 'actors.json'), self.list_actors)
-        run_cacheable(os.path.join(dirpath, 'works.json'), self.list_works)
+    @abc.abstractmethod
+    def list_works_since(self, since: date = start_date) -> List[Dict]:
+        raise NotImplementedError
 
 
 class IndexedAdultSite(AdultSite):
     def __init__(self, home, **kwargs):
         super().__init__(home, **kwargs)
 
-    def list_actors(self) -> List[Dict]:
-        return [self.get_actor_detail(x) for x in self.list_actor_indices()]
+    def list_works_since(self, since: date = start_date) -> List[Dict]:
+        return [self.get_work_detail(x['id']) for x in self.list_work_indices(since)]
 
     @abc.abstractmethod
-    def list_actor_indices(self) -> List[Dict]:
+    def list_work_indices(self, since: date = start_date) -> List[Dict]:
         raise NotImplementedError
 
     @abc.abstractmethod
-    def get_actor_detail(self, idx) -> Dict:
-        raise NotImplementedError
-
-    def list_works(self) -> List[Dict]:
-        return [self.get_work_detail(x) for x in self.list_work_indices()]
-
-    @abc.abstractmethod
-    def list_work_indices(self) -> List[Dict]:
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def get_work_detail(self, idx) -> Dict:
+    def get_work_detail(self, wid) -> Dict:
         raise NotImplementedError

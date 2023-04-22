@@ -7,15 +7,17 @@ Sites of adult resources.
 """
 import math
 import re
+from datetime import date
 from typing import List, Dict, Tuple
 
+from scrapy.exceptions import NotSupported
 from werkzeug.exceptions import NotFound
 
 from internet import base_headers
-from internet.adult import IndexedAdultSite
+from internet.adult import AdultSite, start_date
 
 
-class HuiAV(IndexedAdultSite):
+class HuiAV(AdultSite):
     INTRO_REGEX = re.compile("文件大小：\\s*-?((\\d+[,\\s])?\\d+(\\.\\.?\\d*)?)\\s?(KB|MB|GB)", re.RegexFlag.IGNORECASE)
 
     def __init__(self):
@@ -23,67 +25,8 @@ class HuiAV(IndexedAdultSite):
         headers['cookie'] = 'sort=3'
         super().__init__('https://www.huiav.com', headers=headers)
 
-    def list_actor_indices(self) -> List[Dict]:
+    def list_actors(self) -> List[Dict]:
         return self.__list_records_by_page(lambda x: self.__parse_actor_indices(f'/home/0_{x}.html'))
-
-    def get_actor_detail(self, idx) -> Dict:
-        soup = self.get_soup(f'/{idx["vid"]}/x/1', cache=True)
-        if soup.select_one('.site') is None:
-            raise NotFound()
-        return {
-            'vid': idx["vid"],
-            'name': soup.select('.site a')[-1].text.strip(),
-            'like': int(soup.select_one('.like').text.strip()),
-            'source': self.root_uri + f'/{idx["vid"]}/'
-        }
-
-    def list_work_indices(self) -> List[Dict]:
-        indices = []
-        for k, mosaic in [(1, True), (2, False)]:
-            for w in self.__list_records_by_page(lambda x: self.__parse_work_indices(f'/home/{k}_{x}.html')):
-                w['mosaic'] = mosaic
-                indices.append(w)
-        return sorted(indices, key=lambda x: x['vid'])
-
-    def __list_records_by_page(self, parse_func):
-        page_index, stop, records = 1, 1, []
-        while page_index <= stop:
-            total, data = parse_func(page_index)
-            records.extend(data)
-            page_index += 1
-            stop = math.ceil(total / 36)
-        return sorted(records, key=lambda x: x['vid'])
-
-    def get_work_detail(self, idx) -> Dict:
-        soup = self.get_soup(f'/{idx["vid"]}/#.html', cache=True)
-        if soup.select_one('.site') is None:
-            raise NotFound()
-        serial_number = soup.select('.site a')[-1].text.strip()
-        cover = soup.select_one('.left').select_one('img')['img']
-        actors = []
-        for li in soup.select_one('.right').select_one('.actor').select('li'):
-            parts = li.select_one('a')['href'].strip('/').split('/')
-            actors.append({'vid': int(parts[0]), 'name': parts[1]})
-        online_links = [{
-            'href': ul.select_one('a')['href'].replace('\n', ' '),
-            'img': ul.select_one('img')['img'],
-            'time': ul.select_one('.time').text.strip(),
-            'title': ul.select_one('.title').text.strip().replace('\n', ' ')
-        } for ul in soup.select_one('.list_box').select('ul')]
-        magnet_links = [{
-            'title': ul.select_one('.title').text.strip().replace('\n', ' '),
-            'filesize': self.__parse_filesize(ul.select_one('.intro').text.strip().replace('\n', ' ')),
-            'href': ul.select_one('span').text.strip().replace('\n', ' ')
-        } for ul in soup.select_one('#magnet').select('ul')]
-        return {
-            'vid': idx["vid"],
-            'serialNumber': serial_number,
-            'cover': cover.replace(".jpgf.jpg", ".jpg"),
-            'source': self.root_uri + f'/{idx["vid"]}/',
-            'actors': actors,
-            'online_links': online_links,
-            'magnet_links': magnet_links
-        }
 
     def __parse_actor_indices(self, path) -> Tuple[int, List[Dict]]:
         soup = self.get_soup(path, cache=True)
@@ -98,6 +41,20 @@ class HuiAV(IndexedAdultSite):
             'like': int(ul.select_one('span[type=like]').text.strip())
         } for ul in soup.select_one('.actor_box').select('ul')]
 
+    def list_works(self) -> List[Dict]:
+        return [self.get_work_detail(x['vid']) for x in self.list_work_indices()]
+
+    def list_works_since(self, since: date = start_date) -> List[Dict]:
+        raise NotSupported
+
+    def list_work_indices(self) -> List[Dict]:
+        indices = []
+        for k, mosaic in [(1, True), (2, False)]:
+            for w in self.__list_records_by_page(lambda x: self.__parse_work_indices(f'/home/{k}_{x}.html')):
+                w['mosaic'] = mosaic
+                indices.append(w)
+        return sorted(indices, key=lambda x: x['vid'])
+
     def __parse_work_indices(self, path) -> Tuple[int, List[Dict]]:
         soup = self.get_soup(path, cache=True)
         actor_box = soup.select_one('.actor_box')
@@ -105,13 +62,43 @@ class HuiAV(IndexedAdultSite):
             return 0, []
         total = int(actor_box.select_one('h1 span').text.strip()[:-3])
         return total, [{
-            'title': ul.select_one('a')['title'],
             'vid': int(ul.select_one('li.eye')['vid']),
+            'title': ul.select_one('a')['title'],
             'cover': ul.select_one('img')['img'],
-            'srcCount': int(ul.select_one('span[type=total]').text.strip()),
+            'src_count': int(ul.select_one('span[type=total]').text.strip()),
             'view': int(ul.select_one('span[type=view]').text.strip()),
             'like': int(ul.select_one('span[type=like]').text.strip())
         } for ul in actor_box.select('ul')]
+
+    def get_work_detail(self, vid) -> Dict:
+        soup = self.get_soup(f'/{vid}/#.html', cache=True)
+        if soup.select_one('.site') is None:
+            raise NotFound()
+        serial_number = soup.select('.site a')[-1].text.strip()
+        cover = soup.select_one('.left').select_one('img')['img']
+        actors = []
+        for li in soup.select_one('.right').select_one('.actor').select('li'):
+            parts = li.select_one('a')['href'].strip('/').split('/')
+            actors.append({'vid': int(parts[0]), 'name': parts[1]})
+        online_links = [{
+            'link': ul.select_one('a')['href'].replace('\n', ' '),
+            'image': ul.select_one('img')['img'],
+            'time': ul.select_one('.time').text.strip(),
+            'title': ul.select_one('.title').text.strip().replace('\n', ' ')
+        } for ul in soup.select_one('.list_box').select('ul')]
+        magnet_links = [{
+            'title': ul.select_one('.title').text.strip().replace('\n', ' '),
+            'filesize': self.__parse_filesize(ul.select_one('.intro').text.strip().replace('\n', ' ')),
+            'link': ul.select_one('span').text.strip().replace('\n', ' ')
+        } for ul in soup.select_one('#magnet').select('ul')]
+        return {
+            'vid': vid,
+            'serial_number': serial_number,
+            'cover': cover.replace(".jpgf.jpg", ".jpg"),
+            'actors': actors,
+            'online_links': online_links,
+            'magnet_links': magnet_links
+        }
 
     def __parse_filesize(self, intro):
         matcher = self.INTRO_REGEX.fullmatch(intro)
@@ -126,3 +113,12 @@ class HuiAV(IndexedAdultSite):
             filesize *= 1024
         filesize *= 1024
         return int(filesize)
+
+    def __list_records_by_page(self, parse_func):
+        page_index, stop, records = 1, 1, []
+        while page_index <= stop:
+            total, data = parse_func(page_index)
+            records.extend(data)
+            page_index += 1
+            stop = math.ceil(total / 36)
+        return sorted(records, key=lambda x: x['vid'])
