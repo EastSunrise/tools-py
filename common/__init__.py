@@ -51,6 +51,9 @@ class OptionalValue:
             return OptionalValue(None)
         return OptionalValue(self.__value)
 
+    def not_empty(self):
+        return self.filter(lambda x: len(x) > 0)
+
     @property
     def value(self):
         return self.__value
