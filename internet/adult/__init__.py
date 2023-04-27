@@ -27,6 +27,16 @@ JA_SYLLABARY = [
 ]
 
 
+class Exportable(abc.ABC):
+    @abc.abstractmethod
+    def refactor_actor(self, actor: dict) -> dict:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def refactor_work(self, work: dict) -> dict:
+        raise NotImplementedError
+
+
 class AdultSite(BaseSite):
 
     def __init__(self, home, **kwargs):

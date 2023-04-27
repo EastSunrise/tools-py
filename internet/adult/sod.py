@@ -5,6 +5,7 @@ Producers of SOD group.
 
 @Author Kingen
 """
+import re
 from datetime import datetime, date
 from typing import List, Dict
 
@@ -12,10 +13,10 @@ from scrapy.exceptions import NotSupported
 from werkzeug.exceptions import NotFound
 
 from common import OptionalValue
-from internet.adult import JA_SYLLABARY, AdultSite, start_date
+from internet.adult import JA_SYLLABARY, AdultSite, start_date, Exportable
 
 
-class SODPrime(AdultSite):
+class SODPrime(AdultSite, Exportable):
     def __init__(self):
         super().__init__('https://ec.sod.co.jp/prime/')
         self.get_soup('/prime/_ontime.php')
@@ -30,7 +31,7 @@ class SODPrime(AdultSite):
                     img = box.select_one('img')
                     image = img['src']
                     actors.append({
-                        'id': int(img['id']),
+                        'id': img['id'],
                         'name': box.select_one('p').text.strip(),
                         'avatar': None if 'placeholder' in image else image
                     })
@@ -42,7 +43,7 @@ class SODPrime(AdultSite):
     def list_works(self) -> List[Dict]:
         works, page, over = [], 0, False
         while not over:
-            soup = self.get_soup(f'/prime/videos/genre/', params={'sort': 2, 'page': page})
+            soup = self.get_soup(f'/prime/videos/genre/', params={'sort': 3, 'page': page})
             for box in soup.select('#videos_s_mainbox'):
                 wid = box.select_one('a')['href'].split('=')[-1]
                 try:
@@ -91,3 +92,79 @@ class SODPrime(AdultSite):
 
     def list_works_since(self, since: date = start_date) -> List[Dict]:
         raise NotSupported
+
+    def refactor_actor(self, actor: dict) -> dict:
+        return {
+            'name': actor['name'],
+            'avatar': actor['avatar'],
+            'source': self.root_uri + '/prime/videos/genre/?actress[]=' + actor['id']
+        }
+
+    def refactor_work(self, work: dict) -> dict:
+        copy = work.copy()
+        copy['serial_number'] = work['id']
+        copy['duration'] = work['duration'] * 60 if work.get('duration') else None
+        copy['source'] = self.root_uri + '/prime/videos/?id=' + work['id']
+        return copy
+
+
+class NaturalHigh(AdultSite, Exportable):
+    def __init__(self):
+        super().__init__('https://www.naturalhigh.co.jp/', headers={'Cookie': 'age_gate=18'})
+
+    def list_actors(self) -> List[Dict]:
+        raise NotSupported
+
+    def refactor_actor(self, actor: dict) -> dict:
+        raise NotSupported
+
+    def list_works_since(self, since: date = start_date) -> List[Dict]:
+        raise NotSupported
+
+    def list_works(self) -> List[Dict]:
+        works, page, over = [], 1, False
+        while not over:
+            soup = self.get_soup('/all/', params={'sf_paged': page})
+            for li in soup.select('.archive_style li'):
+                wid = li.select_one('a')['href'].strip('/').split('/')[-1]
+                try:
+                    work = self.get_work_detail(wid)
+                except TypeError:
+                    continue
+                works.append(work)
+            page += 1
+            over |= soup.select_one('.pagination .nextpostslink') is None
+        return works
+
+    def get_work_detail(self, wid) -> Dict:
+        soup = self.get_soup(f'/all/{wid}', cache=True)
+        if 'グッズ' in soup.select_one('.single_cat').text.strip():
+            raise TypeError('Not a work')
+        infos = soup.select('.single_over dd')
+        img = soup.select_one('.single_main_image img')
+        if img.has_attr('srcset'):
+            images = [x.strip().split(' ') for x in img['srcset'].split(',')]
+            cover = max(images, key=lambda x: int(x[-1][:-1]))[0]
+        else:
+            cover = img['src']
+        matcher = re.fullmatch('(\\d{4})/?(\\d{1,2})/(\\d{1,2})', infos[1].text.strip())
+        return {
+            'id': wid,
+            'title': soup.select_one('#single_cap h1').text.strip(),
+            'cover': cover,
+            'description': OptionalValue(soup.select_one('#single_cap dd')).map(lambda x: x.contents[0].text.strip()).value,
+            'director': [x.text.strip() for x in infos[0].select('a')],
+            'release_date': date(int(matcher.group(1)), int(matcher.group(2)), int(matcher.group(3))),
+            'series': OptionalValue(infos[2].text.strip()).filter(lambda x: x != 'ー').not_empty().value,
+            'duration': OptionalValue(infos[3].text.strip()[:-1]).not_empty().map(int).value,
+            'serial_number': infos[4].text.strip(),
+            'trailer': OptionalValue(soup.select_one('#movie_inline video')).map(lambda x: x['src']).value,
+            'images': [x['href'] for x in soup.select('.p-style__gallery a')]
+        }
+
+    def refactor_work(self, work: dict) -> dict:
+        copy = work.copy()
+        copy['duration'] = work['duration'] * 60 if work.get('duration') else None
+        copy['producer'] = 'natural-high'
+        copy['source'] = self.root_uri + '/all/' + work['id']
+        return copy
