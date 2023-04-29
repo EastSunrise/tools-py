@@ -110,7 +110,7 @@ class SODPrime(AdultSite, Exportable):
 
 class NaturalHigh(AdultSite, Exportable):
     def __init__(self):
-        super().__init__('https://www.naturalhigh.co.jp/', headers={'Cookie': 'age_gate=18'})
+        super().__init__('https://www.naturalhigh.co.jp/', name='natural-high', headers={'Cookie': 'age_gate=18'})
 
     def list_actors(self) -> List[Dict]:
         raise NotSupported
@@ -165,6 +165,61 @@ class NaturalHigh(AdultSite, Exportable):
     def refactor_work(self, work: dict) -> dict:
         copy = work.copy()
         copy['duration'] = work['duration'] * 60 if work.get('duration') else None
-        copy['producer'] = 'natural-high'
+        copy['producer'] = self.name
         copy['source'] = self.root_uri + '/all/' + work['id']
+        return copy
+
+
+class IEnergy(AdultSite, Exportable):
+    def __init__(self):
+        super().__init__('http://www.ienergy1.com/', name='i-energy', headers={'Cookie': 'over18=Yes'})
+
+    def list_actors(self) -> List[Dict]:
+        raise NotSupported
+
+    def refactor_actor(self, actor: dict) -> dict:
+        raise NotSupported
+
+    def list_works_since(self, since: date = start_date) -> List[Dict]:
+        works, current, over = [], date.today().strftime('%Y/%m'), False
+        for option in self.get_soup('/search/').select('select[name=release] option')[1:]:
+            release_month = option['value']
+            soup = self.get_soup('/search/index.php', params={'release': release_month}, cache=release_month < current)
+            for div in soup.select('.searchview'):
+                wid = div.select_one('a')['href'].split('=')[-1]
+                work = self.get_work_detail(wid)
+                if work['release_date'] < since:
+                    over = True
+                    break
+                works.append(work)
+            if over:
+                break
+        return works
+
+    def get_work_detail(self, wid) -> Dict:
+        soup = self.get_soup('/dvd/index.php', params={'dvd_id': wid}, cache=True)
+        main = soup.select_one('#main')
+        infos = main.select('.data tr')
+        sn = infos[4].select_one('p.tp02').text.strip()
+        return {
+            'id': wid,
+            'title': main.select_one('h2').text.strip(),
+            'cover': self.root_uri + main.select_one('.cover img')['src'],
+            'description': main.select_one('.summary').text.strip(),
+            'serial_number': sn,
+            'duration': OptionalValue(re.match('\\d+', infos[2].select_one('p.tp02').text.strip())).map(lambda x: int(x.group())).value,
+            'director': infos[3].select_one('p.tp02').text.strip(),
+            'release_date': datetime.strptime(infos[5].select_one('p.tp02').text.strip(), '%Y/%m/%d').date(),
+            'genres': re.split(' +', infos[1].select_one('p.tp02').text.strip()),
+            'series': infos[6].select_one('p.tp02').text.strip(),
+            'images': [self.root_uri + x['src'] for x in main.select('.photos img')],
+            'trailer': OptionalValue(main.select_one('#player_a source')).map(lambda x: self.root_uri + x['src']).value,
+            'actors': re.split('[、 ,　・]+', infos[0].select_one('p.tp02').text.strip())
+        }
+
+    def refactor_work(self, work: dict) -> dict:
+        copy = work.copy()
+        copy['producer'] = self.name
+        copy['duration'] = work['duration'] * 60 if work['duration'] else None
+        copy['source'] = self.root_uri + '/dvd/index.php?dvd_id=' + work['id']
         return copy
