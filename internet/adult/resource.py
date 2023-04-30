@@ -7,14 +7,12 @@ Sites of adult resources.
 """
 import math
 import re
-from datetime import date
 from typing import List, Dict, Tuple
 
-from scrapy.exceptions import NotSupported
 from werkzeug.exceptions import NotFound
 
 from internet import base_headers
-from internet.adult import AdultSite, start_date
+from internet.adult import AdultSite
 
 
 class HuiAV(AdultSite):
@@ -43,9 +41,6 @@ class HuiAV(AdultSite):
 
     def list_works(self) -> List[Dict]:
         return [self.get_work_detail(x['vid']) for x in self.list_work_indices()]
-
-    def list_works_since(self, since: date = start_date) -> List[Dict]:
-        raise NotSupported
 
     def list_work_indices(self) -> List[Dict]:
         indices = []

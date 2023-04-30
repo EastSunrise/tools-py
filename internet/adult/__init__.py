@@ -27,44 +27,31 @@ JA_SYLLABARY = [
 ]
 
 
-class Exportable(abc.ABC):
-    @abc.abstractmethod
-    def refactor_actor(self, actor: dict) -> dict:
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def refactor_work(self, work: dict) -> dict:
-        raise NotImplementedError
-
-
 class AdultSite(BaseSite):
-
-    def __init__(self, home, **kwargs):
-        super().__init__(home, **kwargs)
 
     @abc.abstractmethod
     def list_actors(self) -> List[Dict]:
         raise NotImplementedError
 
+    @abc.abstractmethod
+    def list_works(self) -> List[Dict]:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def get_work_detail(self, wid) -> Dict:
+        raise NotImplementedError
+
+    def refactor_actor(self, actor: dict) -> dict:
+        return actor.copy()
+
+    def refactor_work(self, work: dict) -> dict:
+        return work.copy()
+
+
+class SortedAdultSite(AdultSite):
     def list_works(self) -> List[Dict]:
         return self.list_works_since()
 
     @abc.abstractmethod
     def list_works_since(self, since: date = start_date) -> List[Dict]:
-        raise NotImplementedError
-
-
-class IndexedAdultSite(AdultSite):
-    def __init__(self, home, **kwargs):
-        super().__init__(home, **kwargs)
-
-    def list_works_since(self, since: date = start_date) -> List[Dict]:
-        return [self.get_work_detail(x['id']) for x in self.list_work_indices(since)]
-
-    @abc.abstractmethod
-    def list_work_indices(self, since: date = start_date) -> List[Dict]:
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def get_work_detail(self, wid) -> Dict:
         raise NotImplementedError

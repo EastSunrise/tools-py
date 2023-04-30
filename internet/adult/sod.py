@@ -6,7 +6,6 @@ Producers of SOD group.
 @Author Kingen
 """
 import re
-from abc import ABC
 from datetime import datetime, date
 from typing import List, Dict
 
@@ -14,15 +13,10 @@ from scrapy.exceptions import NotSupported
 from werkzeug.exceptions import NotFound
 
 from common import OptionalValue
-from internet.adult import JA_SYLLABARY, AdultSite, start_date, Exportable
+from internet.adult import JA_SYLLABARY, AdultSite, start_date, SortedAdultSite
 
 
-class SODSite(AdultSite, Exportable, ABC):
-    def __init__(self, home, **kwargs):
-        super().__init__(home, **kwargs)
-
-
-class SODPrime(SODSite):
+class SODPrime(AdultSite):
     def __init__(self):
         super().__init__('https://ec.sod.co.jp/prime/')
         self.get_soup('/prime/_ontime.php')
@@ -97,9 +91,6 @@ class SODPrime(SODSite):
             'trailer': video_soup.select_one('#moviebox source')['src']
         }
 
-    def list_works_since(self, since: date = start_date) -> List[Dict]:
-        raise NotSupported
-
     def refactor_actor(self, actor: dict) -> dict:
         return {
             'name': actor['name'],
@@ -115,17 +106,11 @@ class SODPrime(SODSite):
         return copy
 
 
-class NaturalHigh(SODSite):
+class NaturalHigh(AdultSite):
     def __init__(self):
         super().__init__('https://www.naturalhigh.co.jp/', name='natural-high', headers={'Cookie': 'age_gate=18'})
 
     def list_actors(self) -> List[Dict]:
-        raise NotSupported
-
-    def refactor_actor(self, actor: dict) -> dict:
-        raise NotSupported
-
-    def list_works_since(self, since: date = start_date) -> List[Dict]:
         raise NotSupported
 
     def list_works(self) -> List[Dict]:
@@ -177,14 +162,11 @@ class NaturalHigh(SODSite):
         return copy
 
 
-class IEnergy(SODSite):
+class IEnergy(SortedAdultSite):
     def __init__(self):
         super().__init__('http://www.ienergy1.com/', name='i-energy', headers={'Cookie': 'over18=Yes'})
 
     def list_actors(self) -> List[Dict]:
-        raise NotSupported
-
-    def refactor_actor(self, actor: dict) -> dict:
         raise NotSupported
 
     def list_works_since(self, since: date = start_date) -> List[Dict]:

@@ -15,38 +15,29 @@ from urllib3.util import parse_url
 from werkzeug.exceptions import NotFound
 
 from common import OptionalValue
-from internet.adult import AdultSite, start_date, Exportable
+from internet.adult import start_date, SortedAdultSite
 
 
-class WillProducer(AdultSite):
+class WillProducer(SortedAdultSite):
     SN_REGEX = re.compile('([A-Z]+)(\\d{3})')
     FIGURE_REGEX = re.compile("B(--|\\d+)cm \\(([-A-Z])\\) W(--|\\d+)cm H(--|\\d+)cm")
 
-    def __init__(self, home):
-        super().__init__(home)
-
     def list_actors(self) -> List[Dict]:
-        return [self.get_actor_detail(x['id']) for x in self.list_actor_indices()]
-
-    def list_actor_indices(self) -> List[Dict]:
-        indices = []
+        actors = []
         for nav in self.get_soup('/actress').select_one('.p-tab').select('.dev_nav_item'):
             if '-current' in nav.get('class', ''):
                 continue
             page, total = 1, 1
             while page <= total:
                 soup = self.get_soup(f"{parse_url(nav['x-jump-url']).path}?page={page}")
-                indices.extend([{
-                    'id': int(self.__parse_id(card.select_one('a')['href'])),
-                    'avatar': card.select_one('img')['data-src'],
-                    'name': card.select_one('.name').text.strip(),
-                    'en_name': ' '.join([x.lower().capitalize() for x in card.select_one('.en').text.strip().split(' ')])
-                } for card in soup.select('.c-card')])
+                for card in soup.select('.c-card'):
+                    aid = self.__parse_id(card.select_one('a')['href'])
+                    actors.append(self.get_actor_detail(aid))
                 page += 1
                 pagination = soup.select_one('.swiper-pagination')
                 if pagination is not None:
                     total = int(pagination.find_all(recursive=False)[-2].text.strip())
-        return indices
+        return actors
 
     def get_actor_detail(self, aid) -> Dict:
         soup = self.get_soup(f'/actress/detail/{aid}', cache=True)
@@ -183,9 +174,12 @@ will_producers = [
 # WillProducer('http://www.hobicolle.com/')
 
 
-class Deeps(AdultSite, Exportable):
+class Deeps(SortedAdultSite):
     def __init__(self):
         super().__init__('https://deeps.net/', name='deeps')
+
+    def list_actors(self) -> List[Dict]:
+        raise NotSupported
 
     def list_works_since(self, since: date = start_date) -> List[Dict]:
         works, page, over = [], 1, False
@@ -230,9 +224,3 @@ class Deeps(AdultSite, Exportable):
         copy['duration'] = work['duration'] * 60
         copy['source'] = self.root_uri + f'/product/{work["id"]}/'
         return copy
-
-    def list_actors(self) -> List[Dict]:
-        raise NotSupported
-
-    def refactor_actor(self, actor: dict) -> dict:
-        raise NotSupported

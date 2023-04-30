@@ -12,12 +12,12 @@ from typing import List, Dict
 from werkzeug.exceptions import NotFound
 
 import common
-from internet.adult import AdultSite, JA_ALPHABET, IndexedAdultSite, start_date
+from internet.adult import JA_ALPHABET, start_date, SortedAdultSite
 
 log = common.create_logger(__name__)
 
 
-class Caribbean(IndexedAdultSite):
+class Caribbean(SortedAdultSite):
     def __init__(self):
         super().__init__('https://www.caribbeancom.com/index2.htm', name='caribbean', encoding='EUC-JP')
 
@@ -32,8 +32,8 @@ class Caribbean(IndexedAdultSite):
             } for item in soup.select('.grid-item')])
         return actors
 
-    def list_work_indices(self, since: date = start_date) -> List[Dict]:
-        indices, page, over = [], 1, False
+    def list_works_since(self, since: date = start_date) -> List[Dict]:
+        works, page, over = [], 1, False
         while not over:
             soup = self.get_soup(f'/listpages/all{page}.htm')
             for item in soup.select('div.grid-item'):
@@ -41,16 +41,11 @@ class Caribbean(IndexedAdultSite):
                 if release_date < since:
                     over = True
                     break
-                indices.append({
-                    'id': item.select_one('[itemprop="url"]')['href'].split('/')[-2],
-                    'title': item.select_one('.meta-title').text.strip(),
-                    'release_date': release_date,
-                    'cover': item.select_one('.media-image')['src'],
-                    'actors': [x.text.strip() for x in item.select('[itemprop="name"]')]
-                })
+                wid = item.select_one('[itemprop="url"]')['href'].split('/')[-2]
+                works.append(self.get_work_detail(wid))
             page += 1
             over |= 'is-disabled' in soup.select('.pagination-item')[-1].get_attribute_list('class', [])
-        return indices
+        return works
 
     def get_work_detail(self, wid) -> Dict:
         soup = self.get_soup(f'/moviepages/{wid}/index.html', cache=True)
@@ -71,7 +66,7 @@ class Caribbean(IndexedAdultSite):
         return {
             'id': wid,
             'title': info.select_one('.heading').text.strip(),
-            'cover': self.root_uri + f'/moviepages/{wid}/images/l_l.jpg',
+            'cover2': self.root_uri + f'/moviepages/{wid}/images/l_l.jpg',
             'duration': duration,
             'release_date': datetime.strptime(info.select_one('[itemprop="datePublished"]').text.strip(), '%Y/%m/%d').date(),
             'description': info.select_one('[itemprop="description"]').text.strip(),
@@ -82,7 +77,7 @@ class Caribbean(IndexedAdultSite):
         }
 
 
-class OnePondo(AdultSite):
+class OnePondo(SortedAdultSite):
     def __init__(self):
         super().__init__('https://www.1pondo.tv/', name='1pondo')
 
@@ -98,23 +93,22 @@ class OnePondo(AdultSite):
                 if row['Release'] < since:
                     over = True
                     break
-                works.append(self.__refactor_work(row))
+                works.append(self.__get_gallery(row))
             start += data['SplitSize']
             over |= start >= data['TotalRows']
         return works
 
     def get_work_detail(self, wid) -> Dict:
         work = self.get_json(f'/dyn/phpauto/movie_details/movie_id/{wid}.json', cache=True)
-        return self.__refactor_work(work)
+        return self.__get_gallery(work)
 
-    def __refactor_work(self, work: dict):
-        work['Description'] = work.pop('Desc').strip()
+    def __get_gallery(self, work: dict):
         if work['Gallery']:
             work['Images'] = self.get_json(f'/dyn/dla/json/movie_gallery/{work["MovieID"]}.json', cache=True)['Rows']
         return work
 
 
-class Heyzo(IndexedAdultSite):
+class Heyzo(SortedAdultSite):
     SITE_ID = 3000
 
     def __init__(self):
@@ -134,8 +128,8 @@ class Heyzo(IndexedAdultSite):
             })
         return actors
 
-    def list_work_indices(self, since: date = start_date) -> List[Dict]:
-        indices, page, total, over = [], 1, 1, False
+    def list_works_since(self, since: date = start_date) -> List[Dict]:
+        works, page, total, over = [], 1, 1, False
         while not over and page <= total:
             soup = self.get_soup(f'/listpages/all_{page}.html')
             for item in soup.select('#movies .movie'):
@@ -143,16 +137,11 @@ class Heyzo(IndexedAdultSite):
                 if release < since:
                     over = True
                     break
-                img = item.select_one('img.lazy')
-                indices.append({
-                    'id': item['data-movie-id'],
-                    'cover': self.root_uri + img['data-original'],
-                    'title': img['title'],
-                    'release_date': release
-                })
+                wid = item['data-movie-id']
+                works.append(self.get_work_detail(wid))
             page += 1
             total = max(total, int(soup.select_one('.list_pagetotal').text.strip()))
-        return indices
+        return works
 
     def get_work_detail(self, wid):
         soup = self.get_soup(f'/moviepages/{wid}/index.html', cache=True)
@@ -181,7 +170,7 @@ class Heyzo(IndexedAdultSite):
         return {
             'id': wid,
             'title': section.select_one('h1').text.split('-')[0].strip(),
-            'cover': self.root_uri + f'/contents/{self.SITE_ID}/{wid}/images/player_thumbnail.jpg',
+            'cover2': self.root_uri + f'/contents/{self.SITE_ID}/{wid}/images/player_thumbnail.jpg',
             'duration': duration,
             'release_date': release,
             'series': series if series != '-----' else None,
