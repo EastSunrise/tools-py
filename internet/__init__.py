@@ -93,7 +93,7 @@ def run_cacheable(filepath, do_func, encoding='utf-8', ext: str = None):
     """
     for ch in ['?']:
         filepath = filepath.replace(ch, f'#{ord(ch)}')
-    filepath.rstrip('/')
+    filepath = filepath.rstrip('/')
     if ext is None:
         ext = str(os.path.splitext(filepath)[-1]).lower()
     if os.path.exists(filepath):

@@ -10,11 +10,12 @@ from datetime import date, datetime
 from queue import Queue
 from typing import List, Dict
 
+from scrapy.exceptions import NotSupported
 from urllib3.util import parse_url
 from werkzeug.exceptions import NotFound
 
 from common import OptionalValue
-from internet.adult import AdultSite, start_date
+from internet.adult import AdultSite, start_date, Exportable
 
 
 class WillProducer(AdultSite):
@@ -175,7 +176,63 @@ will_producers = [
     WillProducer('https://hhh-av.com/top')
 ]
 
+
 # WillProducer('https://www.mousouzoku-av.com/top/')
 # WillProducer('https://www.mutekimuteki.com/top/')
 # WillProducer('https://manji-group.com/top/')
 # WillProducer('http://www.hobicolle.com/')
+
+
+class Deeps(AdultSite, Exportable):
+    def __init__(self):
+        super().__init__('https://deeps.net/', name='deeps')
+
+    def list_works_since(self, since: date = start_date) -> List[Dict]:
+        works, page, over = [], 1, False
+        while not over:
+            soup = self.get_soup('/item/', params={'sort': 'new', 'p': page}, cache=True)
+            for li in soup.select('.product_list_wrap .list_box li'):
+                wid = li.select_one('a')['href'].strip('/').split('/')[-1]
+                work = self.get_work_detail(wid)
+                if work['release_date'] < since:
+                    over = True
+                    break
+                work['cover'] = li.select_one('img')['src']
+                works.append(work)
+            page += 1
+            over |= page > int(soup.select('.pager a')[-1]['href'].split('=')[-1])
+        return works
+
+    def get_work_detail(self, wid):
+        soup = self.get_soup(f'/product/{wid}/', cache=True)
+        inner = soup.select_one('.inner')
+        infos = inner.select('td')
+        return {
+            'id': wid,
+            'cover': inner.select_one('img.sp')['src'],
+            'cover2': inner.select_one('img.pc')['src'],
+            'title': inner.select_one('h1').text.strip(),
+            'release_date': datetime.strptime(infos[0].text.strip(), '%Y.%m.%d').date(),
+            'duration': int(re.match('\\d+', infos[1].text.strip()).group()),
+            'director': OptionalValue(infos[2].text).not_blank().split('[/]').get(),
+            'serial_number': infos[3].text.split('/')[0].strip(),
+            'actors': OptionalValue(infos[4].text).not_blank().split('[/、]').get(),
+            'series': OptionalValue(infos[5].text).not_blank().split('/').get(),
+            'genres': [x.strip() for x in infos[6].text.split('/')] + [x.strip() for x in infos[7].text.split('/')],
+            'trailer': OptionalValue(inner.select_one('source')).map(lambda x: x['src']).value,
+            'images': [x['src'] for x in soup.select('.sample_img img')],
+            'description': inner.select_one('.item_content').text.strip()
+        }
+
+    def refactor_work(self, work: dict) -> dict:
+        copy = work.copy()
+        copy['producer'] = self.name
+        copy['duration'] = work['duration'] * 60
+        copy['source'] = self.root_uri + f'/product/{work["id"]}/'
+        return copy
+
+    def list_actors(self) -> List[Dict]:
+        raise NotSupported
+
+    def refactor_actor(self, actor: dict) -> dict:
+        raise NotSupported

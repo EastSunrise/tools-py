@@ -6,6 +6,7 @@ Common functions.
 @Author Kingen
 """
 import logging
+import re
 from datetime import date, datetime
 from json import JSONEncoder
 from typing import Iterable, Callable, Dict, Any, List
@@ -41,6 +42,10 @@ class OptionalValue:
     def __init__(self, value):
         self.__value = value
 
+    @property
+    def value(self):
+        return self.__value
+
     def map(self, mapper: Callable[[Any], Any]):
         if self.__value is None:
             return OptionalValue(None)
@@ -54,9 +59,17 @@ class OptionalValue:
     def not_empty(self):
         return self.filter(lambda x: len(x) > 0)
 
-    @property
-    def value(self):
-        return self.__value
+    def get(self, default=None):
+        return self.__value if self.__value is not None else default
+
+    def not_blank(self):
+        return self.filter(lambda x: len(x.strip()) > 0)
+
+    def strip(self, chars):
+        return self.map(lambda x: x.strip(chars))
+
+    def split(self, pattern):
+        return self.map(lambda x: re.split(pattern, x))
 
 
 class ComplexEncoder(JSONEncoder):

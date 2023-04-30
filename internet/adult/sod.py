@@ -6,6 +6,7 @@ Producers of SOD group.
 @Author Kingen
 """
 import re
+from abc import ABC
 from datetime import datetime, date
 from typing import List, Dict
 
@@ -16,7 +17,12 @@ from common import OptionalValue
 from internet.adult import JA_SYLLABARY, AdultSite, start_date, Exportable
 
 
-class SODPrime(AdultSite, Exportable):
+class SODSite(AdultSite, Exportable, ABC):
+    def __init__(self, home, **kwargs):
+        super().__init__(home, **kwargs)
+
+
+class SODPrime(SODSite):
     def __init__(self):
         super().__init__('https://ec.sod.co.jp/prime/')
         self.get_soup('/prime/_ontime.php')
@@ -76,7 +82,8 @@ class SODPrime(AdultSite, Exportable):
         return {
             'id': wid,
             'title': head.select('h1')[-1].text.strip(),
-            'cover': head.select_one('.popup-image')['href'],
+            'cover': head.select_one('.popup-image img')['src'],
+            'cover2': head.select_one('.popup-image')['href'],
             'description': head.select_one('article').text.strip(),
             'serial_number': infos[0].select('td')[-1].text.strip(),
             'release_date': datetime.strptime(head.select_one('.videos_detail').contents[2].text.strip().replace(' ', '')[-11:], '%Y年%m月%d日').date(),
@@ -108,7 +115,7 @@ class SODPrime(AdultSite, Exportable):
         return copy
 
 
-class NaturalHigh(AdultSite, Exportable):
+class NaturalHigh(SODSite):
     def __init__(self):
         super().__init__('https://www.naturalhigh.co.jp/', name='natural-high', headers={'Cookie': 'age_gate=18'})
 
@@ -170,7 +177,7 @@ class NaturalHigh(AdultSite, Exportable):
         return copy
 
 
-class IEnergy(AdultSite, Exportable):
+class IEnergy(SODSite):
     def __init__(self):
         super().__init__('http://www.ienergy1.com/', name='i-energy', headers={'Cookie': 'over18=Yes'})
 
@@ -188,6 +195,7 @@ class IEnergy(AdultSite, Exportable):
             for div in soup.select('.searchview'):
                 wid = div.select_one('a')['href'].split('=')[-1]
                 work = self.get_work_detail(wid)
+                work['cover'] = self.root_uri + div.select_one('img')['src']
                 if work['release_date'] < since:
                     over = True
                     break
@@ -204,7 +212,7 @@ class IEnergy(AdultSite, Exportable):
         return {
             'id': wid,
             'title': main.select_one('h2').text.strip(),
-            'cover': self.root_uri + main.select_one('.cover img')['src'],
+            'cover2': self.root_uri + main.select_one('.cover img')['src'],
             'description': main.select_one('.summary').text.strip(),
             'serial_number': sn,
             'duration': OptionalValue(re.match('\\d+', infos[2].select_one('p.tp02').text.strip())).map(lambda x: int(x.group())).value,
@@ -214,7 +222,7 @@ class IEnergy(AdultSite, Exportable):
             'series': infos[6].select_one('p.tp02').text.strip(),
             'images': [self.root_uri + x['src'] for x in main.select('.photos img')],
             'trailer': OptionalValue(main.select_one('#player_a source')).map(lambda x: self.root_uri + x['src']).value,
-            'actors': re.split('[、 ,　・]+', infos[0].select_one('p.tp02').text.strip())
+            'actors': OptionalValue(infos[0].select_one('p.tp02').text.strip()).not_empty().map(lambda x: re.split('[、 ,　・]+', x)).value
         }
 
     def refactor_work(self, work: dict) -> dict:
