@@ -18,7 +18,7 @@ from internet.adult import JA_SYLLABARY, AdultSite, start_date, SortedAdultSite
 
 class SODPrime(AdultSite):
     def __init__(self):
-        super().__init__('https://ec.sod.co.jp/prime/')
+        super().__init__('https://ec.sod.co.jp/prime/', headers={'Referer': 'https://ec.sod.co.jp/prime/'})
         self.get_soup('/prime/_ontime.php')
 
     def list_actors(self) -> List[Dict]:
@@ -33,7 +33,8 @@ class SODPrime(AdultSite):
                     actors.append({
                         'id': img['id'],
                         'name': box.select_one('p').text.strip(),
-                        'avatar': None if 'placeholder' in image else image
+                        'avatar': None if 'placeholder' in image else image,
+                        'source': self.root_uri + '/prime/videos/genre/?actress[]=' + img['id']
                     })
                 page += 1
                 page_list = soup.select('#page_list a')
@@ -52,11 +53,13 @@ class SODPrime(AdultSite):
                     contents = box.select_one('.videis_s_star p').contents
                     work = {
                         'id': wid,
+                        'serial_number': wid,
                         'cover': box.select_one('img')['src'],
                         'title': box.select_one('h2').text.strip(),
                         'description': box.select_one('p').text.strip(),
                         'release_date': datetime.strptime(contents[2].text.strip().replace(' ', '')[-11:], '%Y年%m月%d日').date(),
-                        'producer': contents[-2].text.strip()[4:].strip()
+                        'producer': contents[-2].text.strip()[4:].strip(),
+                        'source': self.root_uri + '/prime/videos/?id=' + wid
                     }
                 works.append(work)
             page += 1
@@ -88,21 +91,13 @@ class SODPrime(AdultSite):
             'genres': [x.text.strip() for x in infos[9].select('a')],
             'actors': [x.text.strip() for x in infos[4].select('a')],
             'images': [x['src'] for x in soup.select('.img-gallery img')],
-            'trailer': video_soup.select_one('#moviebox source')['src']
-        }
-
-    def refactor_actor(self, actor: dict) -> dict:
-        return {
-            'name': actor['name'],
-            'avatar': actor['avatar'],
-            'source': self.root_uri + '/prime/videos/genre/?actress[]=' + actor['id']
+            'trailer': video_soup.select_one('#moviebox source')['src'],
+            'source': self.root_uri + '/prime/videos/?id=' + wid
         }
 
     def refactor_work(self, work: dict) -> dict:
         copy = work.copy()
-        copy['serial_number'] = work['id']
-        copy['duration'] = work['duration'] * 60 if work.get('duration') else None
-        copy['source'] = self.root_uri + '/prime/videos/?id=' + work['id']
+        copy['duration'] = work['duration'] * 60 if work.get('duration') is not None else None
         return copy
 
 
@@ -151,15 +146,9 @@ class NaturalHigh(AdultSite):
             'duration': OptionalValue(infos[3].text.strip()[:-1]).not_empty().map(int).value,
             'serial_number': infos[4].text.strip(),
             'trailer': OptionalValue(soup.select_one('#movie_inline video')).map(lambda x: x['src']).value,
-            'images': [x['href'] for x in soup.select('.p-style__gallery a')]
+            'images': [x['href'] for x in soup.select('.p-style__gallery a')],
+            'source': self.root_uri + '/all/' + wid
         }
-
-    def refactor_work(self, work: dict) -> dict:
-        copy = work.copy()
-        copy['duration'] = work['duration'] * 60 if work.get('duration') else None
-        copy['producer'] = self.name
-        copy['source'] = self.root_uri + '/all/' + work['id']
-        return copy
 
 
 class IEnergy(SortedAdultSite):
@@ -204,12 +193,6 @@ class IEnergy(SortedAdultSite):
             'series': infos[6].select_one('p.tp02').text.strip(),
             'images': [self.root_uri + x['src'] for x in main.select('.photos img')],
             'trailer': OptionalValue(main.select_one('#player_a source')).map(lambda x: self.root_uri + x['src']).value,
-            'actors': OptionalValue(infos[0].select_one('p.tp02').text.strip()).not_empty().map(lambda x: re.split('[、 ,　・]+', x)).value
+            'actors': OptionalValue(infos[0].select_one('p.tp02').text.strip()).not_empty().map(lambda x: re.split('[、 ,　・]+', x)).value,
+            'source': self.root_uri + '/dvd/index.php?dvd_id=' + wid
         }
-
-    def refactor_work(self, work: dict) -> dict:
-        copy = work.copy()
-        copy['producer'] = self.name
-        copy['duration'] = work['duration'] * 60 if work['duration'] else None
-        copy['source'] = self.root_uri + '/dvd/index.php?dvd_id=' + work['id']
-        return copy

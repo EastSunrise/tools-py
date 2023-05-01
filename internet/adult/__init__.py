@@ -45,7 +45,10 @@ class AdultSite(BaseSite):
         return actor.copy()
 
     def refactor_work(self, work: dict) -> dict:
-        return work.copy()
+        copy = work.copy()
+        copy['duration'] = work['duration'] * 60 if work.get('duration') is not None else None
+        copy['producer'] = self.name
+        return copy
 
 
 class SortedAdultSite(AdultSite):
