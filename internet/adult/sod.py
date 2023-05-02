@@ -19,7 +19,7 @@ from internet.adult import JA_SYLLABARY, AdultSite, start_date, SortedAdultSite
 class SODPrime(AdultSite):
     def __init__(self):
         super().__init__('https://ec.sod.co.jp/prime/', headers={'Referer': 'https://ec.sod.co.jp/prime/'})
-        self.get_soup('/prime/_ontime.php')
+        self.__initialized = False
 
     def list_actors(self) -> List[Dict]:
         actors = []
@@ -100,6 +100,12 @@ class SODPrime(AdultSite):
         copy['duration'] = work['duration'] * 60 if work.get('duration') is not None else None
         return copy
 
+    def _do_get(self, path, params):
+        if not self.__initialized:
+            self.get_soup('/prime/_ontime.php')
+            self.__initialized = True
+        return super()._do_get(path, params)
+
 
 class NaturalHigh(AdultSite):
     def __init__(self):
@@ -139,6 +145,7 @@ class NaturalHigh(AdultSite):
             'id': wid,
             'title': soup.select_one('#single_cap h1').text.strip(),
             'cover': cover,
+            'cover2': soup.select_one('.single_main_image a')['href'],
             'description': OptionalValue(soup.select_one('#single_cap dd')).map(lambda x: x.contents[0].text.strip()).value,
             'director': [x.text.strip() for x in infos[0].select('a')],
             'release_date': date(int(matcher.group(1)), int(matcher.group(2)), int(matcher.group(3))),

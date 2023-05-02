@@ -9,12 +9,11 @@ import re
 from datetime import date, datetime
 from typing import List, Dict
 
+from scrapy.exceptions import NotSupported
 from werkzeug.exceptions import NotFound
 
-import common
+from common import OptionalValue
 from internet.adult import JA_ALPHABET, start_date, SortedAdultSite
-
-log = common.create_logger(__name__)
 
 
 class Caribbean(SortedAdultSite):
@@ -180,3 +179,57 @@ class Heyzo(SortedAdultSite):
             'images': images[:-3],
             'actors': [x.text.strip() for x in info.select('.table-actor a')]
         }
+
+
+class Kin8tengoku(SortedAdultSite):
+    def __init__(self):
+        super().__init__('https://www.kin8tengoku.com/index.html', name='kin8tengoku', encoding='EUC-JP')
+
+    def list_actors(self) -> List[Dict]:
+        raise NotSupported
+
+    def list_works_since(self, since: date = start_date) -> List[Dict]:
+        works, page, over = [], 1, False
+        while not over:
+            soup = self.get_soup(f'/listpages/all_{page}.htm')
+            for item in soup.select('.movie_list'):
+                wid = item.select_one('a')['href'].split('/')[-2]
+                work = self.get_work_detail(wid)
+                if work['release_date'] < since:
+                    over = True
+                    break
+                works.append(work)
+            page += 1
+            last = soup.select('.pagenation li')[-1]
+            over |= 'next' not in last.get_attribute_list('class', [])
+        return works
+
+    def get_work_detail(self, wid):
+        soup = self.get_soup(f'/moviepages/{wid}/index.html', cache=True)
+        if int(wid) >= 1155:
+            trailer = f'https://smovie.kin8tengoku.com/{wid}/pht/sample.mp4'
+        else:
+            trailer = f'https://smovie.kin8tengoku.com/sample_mobile_template/{wid}/hls-1800k.mp4'
+        infos = soup.select('#main table tr')
+        return {
+            'id': wid,
+            'title': OptionalValue(soup.select_one('.sub_title')).get(soup.select_one('.sub_title_vip')).text.strip(),
+            'cover2': self.root_uri + f'/{wid}/pht/1.jpg',
+            'trailer': trailer,
+            'actors': [x.text.strip() for x in infos[0].select('a')],
+            'genres': [x.text.strip() for x in infos[1].select('a')],
+            'duration': OptionalValue(infos[2].select('td')[-1].text.strip()).not_blank().get(),
+            'release_date': date.fromisoformat(infos[3].select('td')[-1].text.strip()),
+            'description': infos[4].text.strip(),
+            'images': ['https:' + x['src'].replace('.jpg', '_lg.jpg') for x in soup.select('#gallery img')],
+            'source': self.root_uri + f'/moviepages/{wid}/index.html'
+        }
+
+    def refactor_work(self, work: dict) -> dict:
+        copy = work.copy()
+        copy['serial_number'] = 'KIN8-' + work['id']
+        if work['duration']:
+            parts = work['duration'].split(':')
+            copy['duration'] = (int(parts[0]) * 60 + int(parts[1])) * 60 + int(parts[2])
+        copy['producer'] = self.name
+        return copy

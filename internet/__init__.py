@@ -57,19 +57,19 @@ class BaseSite:
             filepath = self.cache_dir + path
             if params:
                 filepath += '?' + urlencode(params)
-            html = run_cacheable(filepath, lambda: self.__do_get(path, params), self.__encoding, ext='.html')
+            html = run_cacheable(filepath, lambda: self._do_get(path, params), self.__encoding, ext='.html')
             return BeautifulSoup(html, 'html.parser')
-        return BeautifulSoup(self.__do_get(path, params), 'html.parser')
+        return BeautifulSoup(self._do_get(path, params), 'html.parser')
 
     def get_json(self, path, params=None, cache=False):
         if cache:
             filepath = self.cache_dir + path
             if params:
                 filepath += '?' + urlencode(params)
-            return json.loads(run_cacheable(filepath, lambda: self.__do_get(path, params), self.__encoding, ext='.json'))
-        return json.loads(self.__do_get(path, params))
+            return json.loads(run_cacheable(filepath, lambda: self._do_get(path, params), self.__encoding, ext='.json'))
+        return json.loads(self._do_get(path, params))
 
-    def __do_get(self, path, params):
+    def _do_get(self, path, params):
         if params and len(params) > 0:
             log.info('Getting for %s%s with %s', self.root_uri, path, params)
         else:
