@@ -98,3 +98,43 @@ class CrystalEizou(SortedAdultSite):
 
     def get_work_detail(self, wid) -> Dict:
         raise NotSupported
+
+
+class Venus(SortedAdultSite):
+    start_month = YearMonth(2009, 4)
+
+    def __init__(self):
+        super().__init__('https://venus-av.com/', name='venus')
+
+    def list_actors(self) -> List[Dict]:
+        raise NotSupported
+
+    def list_works_since(self, since: date = start_date) -> List[Dict]:
+        works, ym, over = [], YearMonth.now().plus_months(-1), False
+        while not over and ym >= self.start_month:
+            soup = self.get_soup('/products/%04d/%02d/' % (ym.year, ym.month), cache=True)
+            for li in soup.select('.topNewreleaseList li'):
+                wid = li.select_one('a')['href'].split('/')[-2]
+                work = self.get_work_detail(wid)
+                if work['release_date'] < since:
+                    over = True
+                    break
+                works.append(work)
+            ym = ym.plus_months(-1)
+        return works
+
+    def get_work_detail(self, wid) -> Dict:
+        soup = self.get_soup(f'/products/{wid}/', cache=True)
+        main = soup.select_one('#main')
+        infos = main.select('.productsDataDetail dd')
+        match = re.fullmatch('(\\d{4})[年月](\\d{1,2})月(\\d{1,2})日', infos[4].text.strip())
+        return {
+            'title': main.select_one('h1').text.strip(),
+            'cover2': self.root_uri + main.select_one('.productsImg img')['src'],
+            'description': infos[0].text.strip(),
+            'actors': infos[1].text.strip().split('/'),
+            'serial_number': infos[2].text.strip(),
+            'genres': infos[3].text.strip().split('/'),
+            'release_date': date(int(match.group(1)), int(match.group(2)), int(match.group(3))),
+            'source': self.root_uri + f'/products/{wid}/'
+        }
