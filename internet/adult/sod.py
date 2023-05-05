@@ -9,14 +9,13 @@ import re
 from datetime import datetime, date
 from typing import List, Dict
 
-from scrapy.exceptions import NotSupported
 from werkzeug.exceptions import NotFound
 
 from common import OptionalValue
-from internet.adult import JA_SYLLABARY, AdultSite, start_date, SortedAdultSite
+from internet.adult import JA_SYLLABARY, AdultSite, start_date, SortedAdultSite, ActorSupplier
 
 
-class SODPrime(AdultSite):
+class SODPrime(AdultSite, ActorSupplier):
     def __init__(self):
         super().__init__('https://ec.sod.co.jp/prime/', headers={'Referer': 'https://ec.sod.co.jp/prime/'})
         self.__initialized = False
@@ -111,9 +110,6 @@ class NaturalHigh(AdultSite):
     def __init__(self):
         super().__init__('https://www.naturalhigh.co.jp/', name='natural-high', headers={'Cookie': 'age_gate=18'})
 
-    def list_actors(self) -> List[Dict]:
-        raise NotSupported
-
     def list_works(self) -> List[Dict]:
         works, page, over = [], 1, False
         while not over:
@@ -161,9 +157,6 @@ class NaturalHigh(AdultSite):
 class IEnergy(SortedAdultSite):
     def __init__(self):
         super().__init__('http://www.ienergy1.com/', name='i-energy', headers={'Cookie': 'over18=Yes'})
-
-    def list_actors(self) -> List[Dict]:
-        raise NotSupported
 
     def list_works_since(self, since: date = start_date) -> List[Dict]:
         works, current, over = [], date.today().strftime('%Y/%m'), False

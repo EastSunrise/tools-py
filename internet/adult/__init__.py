@@ -28,11 +28,6 @@ JA_SYLLABARY = [
 
 
 class AdultSite(BaseSite):
-
-    @abc.abstractmethod
-    def list_actors(self) -> List[Dict]:
-        raise NotImplementedError
-
     @abc.abstractmethod
     def list_works(self) -> List[Dict]:
         raise NotImplementedError
@@ -40,9 +35,6 @@ class AdultSite(BaseSite):
     @abc.abstractmethod
     def get_work_detail(self, wid) -> Dict:
         raise NotImplementedError
-
-    def refactor_actor(self, actor: dict) -> dict:
-        return actor.copy()
 
     def refactor_work(self, work: dict) -> dict:
         copy = work.copy()
@@ -58,3 +50,12 @@ class SortedAdultSite(AdultSite):
     @abc.abstractmethod
     def list_works_since(self, since: date = start_date) -> List[Dict]:
         raise NotImplementedError
+
+
+class ActorSupplier:
+    @abc.abstractmethod
+    def list_actors(self) -> List[Dict]:
+        raise NotImplementedError
+
+    def refactor_actor(self, actor: dict) -> dict:
+        return actor.copy()

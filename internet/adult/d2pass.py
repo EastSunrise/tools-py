@@ -9,14 +9,13 @@ import re
 from datetime import date, datetime
 from typing import List, Dict
 
-from scrapy.exceptions import NotSupported
 from werkzeug.exceptions import NotFound
 
 from common import OptionalValue
-from internet.adult import JA_ALPHABET, start_date, SortedAdultSite
+from internet.adult import JA_ALPHABET, start_date, SortedAdultSite, ActorSupplier
 
 
-class Caribbean(SortedAdultSite):
+class Caribbean(SortedAdultSite, ActorSupplier):
     def __init__(self):
         super().__init__('https://www.caribbeancom.com/index2.htm', name='caribbean', encoding='EUC-JP')
 
@@ -76,7 +75,7 @@ class Caribbean(SortedAdultSite):
         }
 
 
-class OnePondo(SortedAdultSite):
+class OnePondo(SortedAdultSite, ActorSupplier):
     def __init__(self):
         super().__init__('https://www.1pondo.tv/', name='1pondo')
 
@@ -107,7 +106,7 @@ class OnePondo(SortedAdultSite):
         return work
 
 
-class Heyzo(SortedAdultSite):
+class Heyzo(SortedAdultSite, ActorSupplier):
     SITE_ID = 3000
 
     def __init__(self):
@@ -184,9 +183,6 @@ class Heyzo(SortedAdultSite):
 class Kin8tengoku(SortedAdultSite):
     def __init__(self):
         super().__init__('https://www.kin8tengoku.com/index.html', name='kin8tengoku', encoding='EUC-JP')
-
-    def list_actors(self) -> List[Dict]:
-        raise NotSupported
 
     def list_works_since(self, since: date = start_date) -> List[Dict]:
         works, page, over = [], 1, False

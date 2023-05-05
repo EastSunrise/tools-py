@@ -14,10 +14,10 @@ from urllib3.util import parse_url
 from werkzeug.exceptions import NotFound
 
 from common import OptionalValue
-from internet.adult import start_date, SortedAdultSite
+from internet.adult import start_date, SortedAdultSite, ActorSupplier
 
 
-class WillProducer(SortedAdultSite):
+class WillProducer(SortedAdultSite, ActorSupplier):
     SN_REGEX = re.compile('([A-Z]+)(\\d{3})')
     FIGURE_REGEX = re.compile("B(--|\\d+)cm \\(([-A-Z])\\) W(--|\\d+)cm H(--|\\d+)cm")
 

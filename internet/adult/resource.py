@@ -12,10 +12,10 @@ from typing import List, Dict, Tuple
 from werkzeug.exceptions import NotFound
 
 from internet import base_headers
-from internet.adult import AdultSite
+from internet.adult import ActorSupplier, AdultSite
 
 
-class HuiAV(AdultSite):
+class HuiAV(AdultSite, ActorSupplier):
     INTRO_REGEX = re.compile("文件大小：\\s*-?((\\d+[,\\s])?\\d+(\\.\\.?\\d*)?)\\s?(KB|MB|GB)", re.RegexFlag.IGNORECASE)
 
     def __init__(self):
