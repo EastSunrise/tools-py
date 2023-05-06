@@ -13,7 +13,7 @@ from urllib import parse
 from scrapy.exceptions import NotSupported
 
 from common import YearMonth, OptionalValue
-from internet.adult import SortedAdultSite, start_date, ActorSupplier
+from internet.adult import SortedAdultSite, start_date, ActorSupplier, MonthlyAdultSite
 
 
 class Deeps(SortedAdultSite):
@@ -59,60 +59,47 @@ class Deeps(SortedAdultSite):
         }
 
 
-class CrystalEizou(SortedAdultSite):
-    start_month = YearMonth(2014, 5)
+class CrystalEizou(MonthlyAdultSite):
 
     def __init__(self):
-        super().__init__('https://www.crystal-eizou.jp/info/index.html', name='crystal-eizou')
+        super().__init__('https://www.crystal-eizou.jp/info/index.html', YearMonth(2014, 5), name='crystal-eizou')
 
-    def list_works_since(self, since: date = start_date) -> List[Dict]:
-        works, ym, over = [], YearMonth.now().plus_months(-1), False
-        while not over and ym >= self.start_month:
-            path = '/info/archive/%04d_%02d.html' % (ym.year, ym.month)
-            soup = self.get_soup(path, cache=True)
-            sections = soup.select('.itemSection')
-            for section in reversed(sections):
-                infos = section.select('.right2 p')
-                if len(infos) == 0:
-                    continue
-                info = infos[1].text.strip()
-                works.append({
-                    'cover': self.root_uri + parse.urljoin('/info/archive/index.html', section.select_one('img')['src']),
-                    'cover2': OptionalValue(section.select_one('.zoomImg')).map(lambda x: self.root_uri + parse.urljoin('/info/archive/index.html', x['href'])).get(),
-                    'title': infos[0].text.strip(),
-                    'release_date': datetime.strptime(re.search('発売日：(\\d+/\\d+/\\d+)', info).group(1), '%Y/%m/%d').date(),
-                    'serial_number': re.search('品番：/?([A-Z\\d]+[-－]\\d+)', info).group(1).replace('－', '-'),
-                    'duration': int(re.search('時間：(\\d+)分', info).group(1)),
-                    'description': infos[2].text.strip(),
-                    'actors': OptionalValue(re.search('】([^（(]+)', infos[3].text.strip())).map(lambda x: x.group(1)).split('[、　 ・]+').get() if len(infos) > 3 else None,
-                    'source': self.root_uri + path
-                })
-            ym = ym.plus_months(-1)
+    def _list_monthly(self, ym: YearMonth) -> List[Dict]:
+        path = '/info/archive/%04d_%02d.html' % (ym.year, ym.month)
+        soup = self.get_soup(path, cache=True)
+        works = []
+        for section in reversed(soup.select('.itemSection')):
+            infos = section.select('.right2 p')
+            if len(infos) == 0:
+                continue
+            info = infos[1].text.strip()
+            works.append({
+                'cover': self.root_uri + parse.urljoin('/info/archive/index.html', section.select_one('img')['src']),
+                'cover2': OptionalValue(section.select_one('.zoomImg')).map(lambda x: self.root_uri + parse.urljoin('/info/archive/index.html', x['href'])).get(),
+                'title': infos[0].text.strip(),
+                'release_date': datetime.strptime(re.search('発売日：(\\d+/\\d+/\\d+)', info).group(1), '%Y/%m/%d').date(),
+                'serial_number': re.search('品番：/?([A-Z\\d]+[-－]\\d+)', info).group(1).replace('－', '-'),
+                'duration': int(re.search('時間：(\\d+)分', info).group(1)),
+                'description': infos[2].text.strip(),
+                'actors': OptionalValue(re.search('】([^（(]+)', infos[3].text.strip())).map(lambda x: x.group(1)).split('[、　 ・]+').get() if len(infos) > 3 else None,
+                'source': self.root_uri + path
+            })
         return works
+
+    def _get_more_detail(self, idx: dict) -> dict:
+        return {}
 
     def get_work_detail(self, wid) -> Dict:
         raise NotSupported
 
 
-class Venus(SortedAdultSite):
-    start_month = YearMonth(2009, 4)
-
+class Venus(MonthlyAdultSite):
     def __init__(self):
-        super().__init__('https://venus-av.com/', name='venus')
+        super().__init__('https://venus-av.com/', YearMonth(2009, 4), name='venus')
 
-    def list_works_since(self, since: date = start_date) -> List[Dict]:
-        works, ym, over = [], YearMonth.now().plus_months(-1), False
-        while not over and ym >= self.start_month:
-            soup = self.get_soup('/products/%04d/%02d/' % (ym.year, ym.month), cache=True)
-            for li in soup.select('.topNewreleaseList li'):
-                wid = li.select_one('a')['href'].split('/')[-2]
-                work = self.get_work_detail(wid)
-                if work['release_date'] < since:
-                    over = True
-                    break
-                works.append(work)
-            ym = ym.plus_months(-1)
-        return works
+    def _list_monthly(self, ym: YearMonth) -> List[Dict]:
+        soup = self.get_soup('/products/%04d/%02d/' % (ym.year, ym.month), cache=True)
+        return [{'id': li.select_one('a')['href'].split('/')[-2]} for li in soup.select('.topNewreleaseList li')]
 
     def get_work_detail(self, wid) -> Dict:
         soup = self.get_soup(f'/products/{wid}/', cache=True)

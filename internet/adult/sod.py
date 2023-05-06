@@ -11,8 +11,8 @@ from typing import List, Dict
 
 from werkzeug.exceptions import NotFound
 
-from common import OptionalValue
-from internet.adult import JA_SYLLABARY, AdultSite, start_date, SortedAdultSite, ActorSupplier
+from common import OptionalValue, YearMonth
+from internet.adult import JA_SYLLABARY, AdultSite, ActorSupplier, MonthlyAdultSite
 
 
 class SODPrime(AdultSite, ActorSupplier):
@@ -154,26 +154,16 @@ class NaturalHigh(AdultSite):
         }
 
 
-class IEnergy(SortedAdultSite):
+class IEnergy(MonthlyAdultSite):
     def __init__(self):
-        super().__init__('http://www.ienergy1.com/', name='i-energy', headers={'Cookie': 'over18=Yes'})
+        super().__init__('http://www.ienergy1.com/', YearMonth(2007, 5), name='i-energy', headers={'Cookie': 'over18=Yes'})
 
-    def list_works_since(self, since: date = start_date) -> List[Dict]:
-        works, current, over = [], date.today().strftime('%Y/%m'), False
-        for option in self.get_soup('/search/').select('select[name=release] option')[1:]:
-            release_month = option['value']
-            soup = self.get_soup('/search/index.php', params={'release': release_month}, cache=release_month < current)
-            for div in soup.select('.searchview'):
-                wid = div.select_one('a')['href'].split('=')[-1]
-                work = self.get_work_detail(wid)
-                work['cover'] = self.root_uri + div.select_one('img')['src']
-                if work['release_date'] < since:
-                    over = True
-                    break
-                works.append(work)
-            if over:
-                break
-        return works
+    def _list_monthly(self, ym: YearMonth) -> List[Dict]:
+        soup = self.get_soup('/search/index.php', params={'release': '%04d/%02d' % (ym.year, ym.month)}, cache=True)
+        return [{
+            'id': div.select_one('a')['href'].split('=')[-1],
+            'cover': self.root_uri + div.select_one('img')['src']
+        } for div in soup.select('.searchview')]
 
     def get_work_detail(self, wid) -> Dict:
         soup = self.get_soup('/dvd/index.php', params={'dvd_id': wid}, cache=True)
