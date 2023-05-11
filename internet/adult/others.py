@@ -10,6 +10,7 @@ from datetime import date, datetime
 from typing import Dict, List
 from urllib import parse
 
+from bs4 import BeautifulSoup
 from scrapy.exceptions import NotSupported
 
 from common import YearMonth, OptionalValue
@@ -172,3 +173,45 @@ class Maxing(SortedAdultSite, ActorSupplier):
             'description': infos[9].text.strip(),
             'source': self.root_uri + f'/shop/pid/{wid}.html'
         }
+
+
+class Planetplus(MonthlyAdultSite):
+    def __init__(self):
+        super().__init__('http://planetplus.jp/wp01/', YearMonth(2008, 6), name='planetplus')
+        self.__tags = {}
+
+    def _list_monthly(self, ym: YearMonth) -> List[Dict]:
+        indices, page, over = [], 1, False
+        while not over:
+            soup = self.get_soup('/wp01/tag/%04d年%02d月/page/%d/' % (ym.year, ym.month, page), cache=True)
+            for article in soup.select('article'):
+                indices.append({
+                    'id': article['id'].split('-')[-1],
+                    'cover': article.select_one('img')['data-src']
+                })
+            page += 1
+            over |= OptionalValue(soup.select_one('.pagination .current')).map(lambda x: x.find_next_sibling('a')).get() is None
+        return indices
+
+    def get_work_detail(self, wid) -> Dict:
+        data = self.get_json(f'/wp01/wp-json/wp/v2/posts/{wid}', cache=True)
+        content = BeautifulSoup(data['content']['rendered'], 'html.parser')
+        infos = content.select('table div[align]')
+        return {
+            'id': wid,
+            'title': data['title']['rendered'],
+            'cover2': OptionalValue(content.select_one('.panel-widget-style a')).map(lambda x: x['href']).get(),
+            'serial_number': infos[0].text.strip(),
+            'release_date': datetime.strptime(infos[3].text.strip(), '%Y年%m月%d日').date(),
+            'duration': OptionalValue(re.match('\\d+', infos[4].text.strip())).map(lambda x: int(x.group())).get(),
+            'actors': re.split('[/／、]', infos[6].text.strip()),
+            'director': OptionalValue(infos[7].text.strip()).not_blank().get(),
+            'description': infos[8].text.strip(),
+            'genres': [self.__get_tag(x) for x in data['tags']],
+            'source': data['guid']['rendered']
+        }
+
+    def __get_tag(self, tid):
+        if tid not in self.__tags:
+            self.__tags[tid] = self.get_json(f'/wp01/wp-json/wp/v2/tags/{tid}', cache=True)['name']
+        return self.__tags[tid]
