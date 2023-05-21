@@ -215,3 +215,41 @@ class Planetplus(MonthlyAdultSite):
         if tid not in self.__tags:
             self.__tags[tid] = self.get_json(f'/wp01/wp-json/wp/v2/tags/{tid}', cache=True)['name']
         return self.__tags[tid]
+
+
+class Indies(MonthlyAdultSite):
+    def __init__(self):
+        super().__init__('https://www.indies-av.co.jp/', start_month=YearMonth(2007, 6), name='indies')
+
+    def _list_monthly(self, ym: YearMonth) -> List[Dict]:
+        indices = []
+        soup = self.get_soup('/ym/%04d%02d/' % (ym.year, ym.month), cache=True)
+        for item in reversed(soup.select('ul.d-md-flex li.package')):
+            metadata = dict([(x['itemprop'], x['content']) for x in item.select('meta')])
+            indices.append({
+                'id': metadata['url'].strip('/').split('/')[-1],
+                'title': metadata['name'],
+                'release_date': date.fromisoformat(metadata['releaseDate']),
+                'serial_number': metadata['sku'],
+                'cover': item.select_one('img')['src'],
+                'source': metadata['url']
+            })
+        return sorted(indices, key=lambda x: x['release_date'], reverse=True)
+
+    def get_work_detail(self, wid) -> Dict:
+        soup = self.get_soup(f'/title/{wid}/', cache=True)
+        infos = soup.select('ul.px-0 .pl-3')
+        return {
+            'id': wid,
+            'cover2': soup.select_one('[itemprop="image"]')['src'],
+            'title': infos[0].select_one('h1').text.strip(),
+            'description': infos[1].text.strip(),
+            'actors': re.split('[／/、・]', infos[2].text.strip()),
+            'serial_number': infos[3].select_one('[itemprop="sku"]').text.strip(),
+            'director': infos[5].text.strip(),
+            'duration': OptionalValue(re.match('\\d+', infos[7].text.strip())).map(lambda x: int(x.group())).get(),
+            'release_date': date.fromisoformat(soup.select_one('[itemprop="releaseDate"]')['content']),
+            'genres': re.split('[,、]', infos[9].text.strip()),
+            'images': [x['href'] for x in soup.select('#gallery a')],
+            'source': self.root_uri + f'/title/{wid}/'
+        }
