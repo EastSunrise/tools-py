@@ -7,13 +7,12 @@ Basic operations for Internet.
 """
 import json
 import os
+import pickle
 from typing import Optional
 from urllib.parse import urlencode
 
-import pandas
 import requests
 from bs4 import BeautifulSoup
-from pandas import DataFrame
 from urllib3.util import parse_url
 
 import common
@@ -29,11 +28,11 @@ class BaseSite:
     def __init__(self, home, name=None, headers=None, cache_dir: Optional[str] = None, encoding='utf-8'):
         url = parse_url(home)
         self.__hostname = url.hostname
-        self.__name = name if name else self.__hostname
+        self.__name = name or self.__hostname
         self.__root_uri = '%s://%s' % (url.scheme, url.netloc)
-        self.__headers = base_headers if headers is None else headers
+        self.__headers = headers or base_headers
         self.__encoding = encoding
-        self.__cache_dir = cache_dir if cache_dir is not None else os.path.join(os.getenv('TEMP'), self.__hostname)
+        self.__cache_dir = cache_dir or os.path.join(os.getenv('TEMP'), self.__hostname)
         self.__session = requests.session()
 
     @property
@@ -52,78 +51,62 @@ class BaseSite:
     def cache_dir(self):
         return self.__cache_dir
 
-    def get_soup(self, path, params=None, cache=False):
+    def get_soup(self, path, params=None, cache=False, retry=False):
+        return BeautifulSoup(self._do_get_cacheable(path, params, cache, retry), 'html.parser')
+
+    def get_json(self, path, params=None, cache=False, retry=False):
+        return json.loads(self._do_get_cacheable(path, params, cache, retry))
+
+    def _do_get_cacheable(self, path, params: dict = None, cache=False, retry=False):
         if cache:
+            op = 'cache' if not retry else 'put'
             filepath = self.cache_dir + path
             if params:
                 filepath += '?' + urlencode(params)
-            html = run_cacheable(filepath, lambda: self._do_get(path, params), self.__encoding, ext='.html')
-            return BeautifulSoup(html, 'html.parser')
-        return BeautifulSoup(self._do_get(path, params), 'html.parser')
+            return run_cacheable(filepath, lambda: self._do_get(path, params), op)
+        return self._do_get(path, params)
 
-    def get_json(self, path, params=None, cache=False):
-        if cache:
-            filepath = self.cache_dir + path
-            if params:
-                filepath += '?' + urlencode(params)
-            return json.loads(run_cacheable(filepath, lambda: self._do_get(path, params), self.__encoding, ext='.json'))
-        return json.loads(self._do_get(path, params))
-
-    def _do_get(self, path, params):
+    def _do_get(self, path, params: dict = None):
         if params and len(params) > 0:
-            log.info('Getting for %s%s with %s', self.root_uri, path, params)
+            log.info('Getting for %s%s?%s', self.root_uri, path, '&'.join(k + '=' + str(v) for k, v in params.items()))
         else:
             log.info('Getting for %s%s', self.root_uri, path)
         response = self.__session.get(self.root_uri + path, params=params, headers=self.__headers)
         return response.content.decode(self.__encoding, errors='ignore')
 
 
-CSV_EXTENSIONS = ['.csv']
-JSON_EXTENSIONS = ['.json']
-PLAIN_EXTENSIONS = ['.html', '.htm', '.txt', '.php', '']
-
-
-def run_cacheable(filepath, do_func, encoding='utf-8', ext: str = None):
+def run_cacheable(filepath, do_func, op='cache'):
     """
-    Retrieves data directly or from file caches.
-    @param filepath: filepath to store caches
+    Retrieves data directly or from associated cache stored as file.
+    If op is 'cache', apply caching behaviour.
+    If op is 'put', always invoke the actual function and cache the newer result.
+    If op is 'evict', remove the cache if found and invoke the actual function
+
+    @param filepath: filepath to store associate cache
     @param do_func: actual function to retrieve data
-    @param encoding: encoding for the cache file
-    @param ext: extension of the file
+    @param op: option of 'cache', 'put' and 'evict'
     """
     for ch in ['?']:
         filepath = filepath.replace(ch, f'#{ord(ch)}')
-    filepath = filepath.rstrip('/')
-    if ext is None:
-        ext = str(os.path.splitext(filepath)[-1]).lower()
-    if os.path.exists(filepath):
-        log.info(f'Reading {filepath}')
-        if ext in CSV_EXTENSIONS:
-            if os.path.getsize(filepath) <= 5:
-                return []
-            return pandas.read_csv(filepath, encoding=encoding).to_dict('records')
-        if ext in JSON_EXTENSIONS:
-            with open(filepath, 'r', encoding=encoding) as fp:
-                return json.load(fp)
-        if ext in PLAIN_EXTENSIONS:
-            with open(filepath, 'r', encoding=encoding) as fp:
-                return fp.read()
-        raise ValueError('Unknown mode')
-    dirpath = os.path.dirname(filepath)
-    if not os.path.exists(dirpath):
-        os.makedirs(dirpath)
+    filepath = filepath.rstrip('/') + '.pkl'
 
-    data = do_func()
+    if op == 'cache' and os.path.exists(filepath):
+        log.info(f'reading cache from {filepath}')
+        with open(filepath, 'rb') as fp:
+            return pickle.load(fp)
 
-    log.info(f'Writing {filepath}')
-    if ext in CSV_EXTENSIONS:
-        DataFrame(data).to_csv(filepath, index=False, encoding=encoding)
-    elif ext in JSON_EXTENSIONS:
-        with open(filepath, 'w', encoding=encoding) as fp:
-            json.dump(data, fp, ensure_ascii=False, cls=common.ComplexEncoder)
-    elif ext in PLAIN_EXTENSIONS:
-        with open(filepath, 'w', encoding=encoding) as fp:
-            fp.write(data)
-    else:
-        raise ValueError('Unknown mode')
-    return data
+    if (op == 'cache' and not os.path.exists(filepath)) or op == 'put':
+        data = do_func()
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        log.info(f'writing cache to {filepath}')
+        with open(filepath, 'wb') as fp:
+            pickle.dump(data, fp)
+        return data
+
+    if op == 'evict':
+        if os.path.exists(filepath):
+            log.info(f'removing cache from {filepath}')
+            os.remove(filepath)
+        return do_func()
+
+    raise ValueError('cannot run with unknown operation: ' + op)

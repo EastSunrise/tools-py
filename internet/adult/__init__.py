@@ -7,81 +7,89 @@ Adult sites and resources.
 """
 import abc
 from datetime import date
-from typing import List, Dict
+from typing import List
+
+from scrapy.exceptions import NotSupported
+from werkzeug.exceptions import HTTPException
 
 from common import YearMonth
 from internet import BaseSite
 
-start_date = date(1900, 1, 1)
-JA_ALPHABET = ['a', 'k', 's', 't', 'n', 'h', 'm', 'y', 'r', 'w']
-JA_SYLLABARY = [
-    'あ', 'い', 'う', 'え', 'お',
-    'か', 'き', 'く', 'け', 'こ',
-    'さ', 'し', 'す', 'せ', 'そ',
-    'た', 'ち', 'つ', 'て', 'と',
-    'な', 'に', 'ぬ', 'ね', 'の',
-    'は', 'ひ', 'ふ', 'へ', 'ほ',
-    'ま', 'み', 'む', 'め', 'も',
-    'や', 'ゆ', 'よ',
-    'ら', 'り', 'る', 'れ', 'ろ',
-    'わ', 'を'
-]
+original_date = date(1900, 1, 1)
 
 
-class AdultSite(BaseSite):
+class AdultProducer(BaseSite):
     @abc.abstractmethod
-    def list_works(self) -> List[Dict]:
+    def list_works(self) -> List[dict]:
         raise NotImplementedError
 
     @abc.abstractmethod
-    def get_work_detail(self, wid) -> Dict:
+    def get_work_detail(self, wid) -> dict:
         raise NotImplementedError
 
-    def refactor_work(self, work: dict) -> dict:
-        copy = work.copy()
-        copy['duration'] = work['duration'] * 60 if work.get('duration') is not None else None
-        copy['producer'] = self.name
-        return copy
+    def refactor_work(self, work: dict) -> None:
+        """
+        Refactors properties of the work in-place.
+        """
+        work['producer'] = work.get('producer') or self.name
 
 
-class SortedAdultSite(AdultSite):
-    def list_works(self) -> List[Dict]:
-        return self.list_works_since()
+class OrderedAdultProducer(AdultProducer):
+    def list_works(self) -> List[dict]:
+        return self.list_works_between(original_date, date.today())
 
     @abc.abstractmethod
-    def list_works_since(self, since: date = start_date) -> List[Dict]:
+    def list_works_between(self, start: date, stop: date) -> List[dict]:
+        """
+        Retrieves works between the two dates.
+        @param start: start date(inclusive)
+        @param stop: end date(exclusive)
+        @return works order by date descending if possible
+        """
         raise NotImplementedError
 
 
-class MonthlyAdultSite(SortedAdultSite):
+class MonthlyAdultProducer(AdultProducer):
     def __init__(self, home, start_month: YearMonth, **kwargs):
         super().__init__(home, **kwargs)
         self.__start_month = start_month
 
-    def list_works_since(self, since: date = start_date) -> List[Dict]:
-        works, ym, over = [], YearMonth.now().plus_months(-1), False
-        while not over and ym >= self.__start_month:
+    @property
+    def start_month(self):
+        return self.__start_month
+
+    def list_works(self) -> List[dict]:
+        return self.list_works_between(self.__start_month, YearMonth.now())
+
+    def list_works_between(self, start: YearMonth, stop: YearMonth) -> List[dict]:
+        """
+        Retrieves works between the two months.
+        @param start: start month(inclusive)
+        @param stop: end month(exclusive), not after current month
+        """
+        works, ym = [], stop.plus_months(-1)
+        while ym >= self.__start_month and ym >= start:
             for work in self._list_monthly(ym):
-                work.update(self._get_more_detail(work))
-                if work['release_date'] < since:
-                    over = True
-                    break
+                try:
+                    work.update(self.get_work_detail(work['wid']))
+                except (HTTPException, NotSupported):
+                    pass
                 works.append(work)
             ym = ym.plus_months(-1)
         return works
 
     @abc.abstractmethod
-    def _list_monthly(self, ym: YearMonth) -> List[Dict]:
-        pass
-
-    def _get_more_detail(self, idx: dict) -> dict:
-        return self.get_work_detail(idx['id'])
-
-
-class ActorSupplier:
-    @abc.abstractmethod
-    def list_actors(self) -> List[Dict]:
+    def _list_monthly(self, ym: YearMonth) -> List[dict]:
         raise NotImplementedError
 
-    def refactor_actor(self, actor: dict) -> dict:
-        return actor.copy()
+
+class ActorProducer:
+    @abc.abstractmethod
+    def list_actors(self) -> List[dict]:
+        raise NotImplementedError
+
+    def refactor_actor(self, actor: dict) -> None:
+        """
+        Refactors properties of the actor in-place.
+        """
+        pass

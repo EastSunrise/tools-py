@@ -60,12 +60,14 @@ class OptionalValue:
         return self.filter(lambda x: len(x) > 0)
 
     def get(self, default=None):
-        return self.__value if self.__value is not None else default
+        return self.__value or default
 
     def not_blank(self):
         return self.filter(lambda x: len(x.strip()) > 0)
 
-    def strip(self, chars):
+    def strip(self, chars=None):
+        if isinstance(self.__value, list):
+            return self.map(lambda xs: [x.strip(chars) for x in xs])
         return self.map(lambda x: x.strip(chars))
 
     def split(self, pattern):
@@ -82,6 +84,8 @@ class ComplexEncoder(JSONEncoder):
 
 
 class YearMonth:
+    regexp = re.compile('(\\d{4,})-(\\d{2})')
+
     def __init__(self, year: int, month: int):
         self.__year = year
         if month < 1 or month > 12:
@@ -108,6 +112,13 @@ class YearMonth:
             return self
         months += self.__year * 12 + (self.__month - 1)
         return YearMonth(months // 12, months % 12 + 1)
+
+    @staticmethod
+    def parse(ym_str: str):
+        match = YearMonth.regexp.fullmatch(ym_str)
+        if match is None:
+            raise ValueError('cannot parse the string: ' + ym_str)
+        return YearMonth(int(match.group(1)), int(match.group(2)))
 
     def __eq__(self, other):
         return self.__cmp(other) == 0
