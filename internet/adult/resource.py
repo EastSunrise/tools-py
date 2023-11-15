@@ -7,15 +7,19 @@ Sites of adult resources.
 """
 import math
 import re
-from typing import List, Tuple
+from typing import Tuple
 
 from werkzeug.exceptions import NotFound
 
-from internet import base_headers, BaseSite
-from internet.adult.ja import JaActorProducer
+from internet import base_headers
+from internet.adult import AdultSite
+from internet.adult.export import *
+from internet.adult.ja import JaActorSite
+
+log = create_logger(__name__)
 
 
-class HuiAV(BaseSite, JaActorProducer):
+class HuiAV(AdultSite, JaActorSite):
     intro_regexp = re.compile("文件大小：\\s*-?((\\d+[,\\s])?\\d+(\\.\\.?\\d*)?)\\s?(KB|MB|GB)", re.RegexFlag.IGNORECASE)
 
     def __init__(self):
@@ -33,7 +37,6 @@ class HuiAV(BaseSite, JaActorProducer):
             'rank': int(ul.select_one('span.rank').text.strip()),
             'name': ul.select_one('a')['title'].strip(),
             'aid': ul.select_one('li.eye')['vid'],
-            'avatar': ul.select_one('img')['img'],
             'count': int(ul.select_one('span[type=total]').text.strip()),
             'view': int(ul.select_one('span[type=view]').text.strip()),
             'like': int(ul.select_one('span[type=like]').text.strip()),
@@ -41,9 +44,15 @@ class HuiAV(BaseSite, JaActorProducer):
         } for ul in soup.select_one('.actor_box').select('ul')]
 
     def list_works(self) -> List[dict]:
-        return [{**work, **self.get_work_detail(work['wid']), 'censored': censored}
-                for k, censored in [(1, True), (2, False)]
-                for work in self.__list_records_by_page(lambda x: self.__parse_work_indices(f'/home/{k}_{x}.html'))]
+        works = []
+        for k, censored in [(1, True), (2, False)]:
+            for idx in self.__list_records_by_page(lambda x: self.__parse_work_indices(f'/home/{k}_{x}.html')):
+                try:
+                    work = self.get_work_detail(idx['wid'])
+                except NotFound:
+                    work = self.get_work_detail(idx['wid'], retry=True)
+                works.append({**idx, **work, 'censored': censored})
+        return works
 
     def __parse_work_indices(self, path) -> Tuple[int, List[dict]]:
         soup = self.get_soup(path, cache=True)
@@ -52,16 +61,15 @@ class HuiAV(BaseSite, JaActorProducer):
             return 0, []
         total = int(actor_box.select_one('h1 span').text.strip()[:-3])
         return total, [{
-            'wid': int(ul.select_one('li.eye')['vid']),
-            'title': ul.select_one('a')['title'],
+            'wid': ul.select_one('li.eye')['vid'],
             'cover': ul.select_one('img')['img'],
             'src_count': int(ul.select_one('span[type=total]').text.strip()),
             'view': int(ul.select_one('span[type=view]').text.strip()),
             'like': int(ul.select_one('span[type=like]').text.strip())
         } for ul in actor_box.select('ul')]
 
-    def get_work_detail(self, wid) -> dict:
-        soup = self.get_soup(f'/{wid}/#.html', cache=True)
+    def get_work_detail(self, wid, retry=False) -> dict:
+        soup = self.get_soup(f'/{wid}/#.html', cache=True, retry=retry)
         if soup.select_one('.site') is None:
             raise NotFound()
         serial_number = soup.select('.site a')[-1].text.strip()
@@ -92,7 +100,8 @@ class HuiAV(BaseSite, JaActorProducer):
         }
 
     def refactor_work(self, work: dict):
-        work['genres'] = ['censored' if work['mosaic'] else 'uncensored']
+        work['serial_number'] = work['serial_number'].upper()
+        work['genres'] = ['censored' if work.get('censored', True) else 'uncensored']
         work['actors'] = [x['name'] for x in work['actors']]
         work['resources'] = work['online_links'] + work['magnet_links']
 
@@ -118,3 +127,31 @@ class HuiAV(BaseSite, JaActorProducer):
             page_index += 1
             stop = math.ceil(total / 36)
         return records
+
+
+def retry_export_work(work: dict):
+    result = kingen_web.import_work(work)
+    if result['code'] == 1042:
+        fields = [x['field'] for x in result['conflicts']]
+        if 'cover' in fields:
+            work.pop('cover')
+        if 'cover2' in fields:
+            work.pop('cover2')
+        result = kingen_web.import_work(work)
+    if result['code'] == 1043:
+        result['code'] = 0
+    return result
+
+
+def persist_resources(site: HuiAV, dirpath, sn_regexp):
+    log.info('Start persisting actors and works of %s', site.name)
+    actors = import_data(os.path.join(dirpath, 'actor', site.name + '.json'), site.list_actors, site.refactor_actor)
+    export_data(os.path.join(dirpath, 'actor/export', site.name + '-export.json'), actors, kingen_web.import_actor)
+
+    works = import_data(os.path.join(dirpath, 'work', site.name + '.json'), site.list_works, site.refactor_work)
+    if validate_works(works, sn_regexp=sn_regexp, ordered=False):
+        export_data(os.path.join(dirpath, 'work/export', site.name + '-export.json'), works, retry_export_work)
+
+
+if __name__ == '__main__':
+    persist_resources(HuiAV(), 'tmp/huiav', sn_regexp=re.compile('[A-Z0-9_-]{4,32}'))

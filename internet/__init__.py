@@ -57,6 +57,9 @@ class BaseSite:
     def get_json(self, path, params=None, cache=False, retry=False):
         return json.loads(self._do_get_cacheable(path, params, cache, retry))
 
+    def post_json(self, path, params=None):
+        return json.loads(self._do_post(path, json_data=params))
+
     def _do_get_cacheable(self, path, params: dict = None, cache=False, retry=False):
         if cache:
             op = 'cache' if not retry else 'put'
@@ -72,6 +75,14 @@ class BaseSite:
         else:
             log.info('Getting for %s%s', self.root_uri, path)
         response = self.__session.get(self.root_uri + path, params=params, headers=self.__headers)
+        return response.content.decode(self.__encoding, errors='ignore')
+
+    def _do_post(self, path, query_params: dict = None, data=None, json_data=None):
+        if query_params and len(query_params) > 0:
+            log.info('Posting for %s%s?%s', self.root_uri, path, '&'.join(k + '=' + str(v) for k, v in query_params.items()))
+        else:
+            log.info('Posting for %s%s', self.root_uri, path)
+        response = self.__session.post(self.root_uri + path, params=query_params, headers=self.__headers, data=data, json=json_data)
         return response.content.decode(self.__encoding, errors='ignore')
 
 

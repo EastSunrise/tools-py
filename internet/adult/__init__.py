@@ -18,7 +18,7 @@ from internet import BaseSite
 original_date = date(1900, 1, 1)
 
 
-class AdultProducer(BaseSite):
+class AdultSite(BaseSite):
     @abc.abstractmethod
     def list_works(self) -> List[dict]:
         raise NotImplementedError
@@ -31,10 +31,10 @@ class AdultProducer(BaseSite):
         """
         Refactors properties of the work in-place.
         """
-        work['producer'] = work.get('producer') or self.name
+        pass
 
 
-class OrderedAdultProducer(AdultProducer):
+class OrderedAdultSite(AdultSite):
     def list_works(self) -> List[dict]:
         return self.list_works_between(original_date, date.today())
 
@@ -49,7 +49,7 @@ class OrderedAdultProducer(AdultProducer):
         raise NotImplementedError
 
 
-class MonthlyAdultProducer(AdultProducer):
+class MonthlyAdultSite(AdultSite):
     def __init__(self, home, start_month: YearMonth, **kwargs):
         super().__init__(home, **kwargs)
         self.__start_month = start_month
@@ -83,7 +83,7 @@ class MonthlyAdultProducer(AdultProducer):
         raise NotImplementedError
 
 
-class ActorProducer:
+class ActorSite:
     @abc.abstractmethod
     def list_actors(self) -> List[dict]:
         raise NotImplementedError

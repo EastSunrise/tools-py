@@ -10,9 +10,7 @@ import time
 import warnings
 from abc import ABC
 from collections import OrderedDict
-from datetime import date, datetime
 from queue import Queue
-from typing import List
 from urllib import parse
 
 from bs4 import BeautifulSoup
@@ -20,8 +18,11 @@ from scrapy.exceptions import NotSupported
 from urllib3.util import parse_url
 from werkzeug.exceptions import NotFound, BadGateway
 
-from common import OptionalValue, YearMonth
-from internet.adult import ActorProducer, OrderedAdultProducer, MonthlyAdultProducer, AdultProducer
+from common import OptionalValue
+from internet.adult import ActorSite, AdultSite
+from internet.adult.export import *
+
+log = create_logger(__name__)
 
 ja_alphabet = ['a', 'k', 's', 't', 'n', 'h', 'm', 'y', 'r', 'w']
 ja_syllabary = [
@@ -38,15 +39,15 @@ ja_syllabary = [
 ]
 
 
-class JaActorProducer(ActorProducer, ABC):
+class JaActorSite(ActorSite, ABC):
     def refactor_actor(self, actor: dict) -> None:
         super().refactor_actor(actor)
-        actor['ja_name'] = actor['name']
-        actor['nationality'] = 'Japan'
-        actor['ethnicity'] = 'Yamato'
+        actor['ja_name'] = actor.get('ja_name') or actor['name']
+        actor['nationality'] = actor.get('nationality') or 'Japan'
+        actor['ethnicity'] = actor.get('ethnicity') or 'Yamato'
 
 
-class BaseWillProducer(OrderedAdultProducer):
+class BaseWillProducer(OrderedAdultSite):
     sn_regexp = re.compile('([A-Z]+)(\\d{3})')
 
     def list_works_between(self, start: date, stop: date) -> List[dict]:
@@ -63,8 +64,16 @@ class BaseWillProducer(OrderedAdultProducer):
         return sorted(works, key=lambda x: x['release_date'], reverse=True)
 
     def __list_works_among(self, dates, start, stop):
-        return [{**idx, **self.get_work_detail(idx['wid'])}
-                for day in dates if start <= day < stop for idx in self.__list_work_indices_by_date(day)]
+        works = []
+        for day in dates:
+            if start <= day < stop:
+                for idx in self.__list_work_indices_by_date(day):
+                    try:
+                        work = self.get_work_detail(idx['wid'])
+                    except NotFound:
+                        work = self.get_work_detail(idx['wid'], retry=True)
+                    works.append({**idx, **work})
+        return works
 
     def __list_works_all(self, dates, start, stop):
         used, pending, works = set(), Queue(), []
@@ -130,13 +139,13 @@ class BaseWillProducer(OrderedAdultProducer):
         }
 
     def refactor_work(self, work: dict) -> None:
-        super().refactor_work(work)
+        work['producer'] = self.name
         match = self.sn_regexp.fullmatch(work['wid'])
         work['serial_number'] = match.group(1) + '-' + match.group(2)
         work['duration'] = OptionalValue(work['duration']).map(lambda x: int(x.rstrip('分')) * 60).get()
 
 
-class WillProducer(BaseWillProducer, JaActorProducer):
+class WillProducer(BaseWillProducer, JaActorSite):
     measurements_regexp = re.compile('B(\\d{2,3}|--)cm \\(([-A-P])\\) W(\\d{2,3}|--)cm H(\\d{2,3}|--)cm')
     birthday_regexp = re.compile('\\d{4}年\\d{1,2}月\\d{1,2}日')
 
@@ -162,13 +171,14 @@ class WillProducer(BaseWillProducer, JaActorProducer):
         headers = soup.select('.c-title-main > div')
         items = soup.select('.p-profile__info .table div.item')
         info = dict([(x.select_one('.th').text.strip(), x.select_one('.td').text.strip()) for x in items if x.select_one('.th') is not None])
+        birthday_op = OptionalValue(info.get('誕生日')).map(lambda x: self.birthday_regexp.fullmatch(x)).map(lambda x: x.group())
         return {
             'aid': aid,
             'name': headers[0].text.strip(),
             'en_name': ' '.join([x.lower().capitalize() for x in headers[1].text.strip().split(' ')]),
-            'avatar': OptionalValue(soup.select_one('.p-profile__imgArea img')).map(lambda x: x['data-src']).value,
-            'birthday': OptionalValue(info.get('誕生日')).map(lambda x: self.birthday_regexp.fullmatch(x)).map(lambda x: x.group()).get(),
-            'height': info.get('身長') if '身長' in info else None,
+            'images': OptionalValue(soup.select_one('.p-profile__imgArea img')).map(lambda x: x['data-src']).get(),
+            'birthday': birthday_op.map(lambda x: datetime.strptime(x, '%Y年%M月%d日').date()).get(),
+            'height': info.get('身長'),
             'measurements': OptionalValue(info.get('3サイズ')).map(lambda x: self.measurements_regexp.fullmatch(x)).map(lambda x: x.group()).get(),
             'websites': [x['href'] for x in soup.select('.p-profile__info .sns a')],
             'source': self.root_uri + f'/actress/detail/{aid}'
@@ -176,7 +186,6 @@ class WillProducer(BaseWillProducer, JaActorProducer):
 
     def refactor_actor(self, actor: dict) -> None:
         super().refactor_actor(actor)
-        actor['birthday'] = OptionalValue(actor.get('birthday')).map(lambda x: datetime.strptime(x, '%Y年%M月%d日').date()).get()
         actor['height'] = OptionalValue(actor.get('height')).map(lambda x: int(x.rstrip('cm'))).get()
         measurements = actor['measurements']
         if measurements is not None:
@@ -202,7 +211,7 @@ will_producers = [
     WillProducer('https://tameikegoro.jp/top', name='tameikegoro'),
     WillProducer('https://fitch-av.com/top', name='fitch'),
     WillProducer('https://kawaiikawaii.jp/top', name='kawaii'),
-    WillProducer('https://befreebe.com/top', name='befreebe'),
+    WillProducer('https://befreebe.com/top', name='befree'),
     WillProducer('https://muku.tv/top', name='muku'),
     WillProducer('https://attackers.net/top', name='attackers'),
     WillProducer('https://mko-labo.net/top', name='mko-labo'),
@@ -221,7 +230,7 @@ will_producers = [
 ]
 
 
-class Prestige(OrderedAdultProducer, JaActorProducer):
+class Prestige(OrderedAdultSite, JaActorSite):
     def __init__(self):
         super().__init__('https://prestige-av.com', name='prestige')
 
@@ -231,9 +240,9 @@ class Prestige(OrderedAdultProducer, JaActorProducer):
     def refactor_actor(self, actor: dict) -> None:
         super().refactor_actor(actor)
         actor['source'] = self.root_uri + '/goods?actress=' + actor['name']
-        actor['name'] = actor['name'].replace(' ', '')
+        actor['ja_name'] = actor['name'] = actor['name'].replace(' ', '')
         actor['en_name'] = OptionalValue(actor['nameRoma']).not_blank().get()
-        actor['avatar'] = OptionalValue(actor['media']).map(lambda x: self.media(x['path'])).get(),
+        actor['images'] = OptionalValue(actor['media']).map(lambda x: self.media(x['path'])).get()
 
     def list_works_between(self, start: date, stop: date) -> List[dict]:
         works = OrderedDict()
@@ -263,7 +272,7 @@ class Prestige(OrderedAdultProducer, JaActorProducer):
         return list(works.values())
 
     def refactor_work(self, work: dict) -> None:
-        super().refactor_work(work)
+        work['producer'] = '#'.join(x['name'] for x in work['productMaker'])
         work['serial_number'] = work['deliveryItemId']
         work['title'] = work['productTitle']
         work['cover'] = OptionalValue(work.get('productThumbnail')).map(lambda x: self.media(x['path'])).get()
@@ -285,7 +294,7 @@ class Prestige(OrderedAdultProducer, JaActorProducer):
 prestige = Prestige()
 
 
-class SODPrime(OrderedAdultProducer, JaActorProducer):
+class SODPrime(OrderedAdultSite, JaActorSite):
     def __init__(self):
         super().__init__('https://ec.sod.co.jp/prime/', name='sod', headers={'Referer': 'https://ec.sod.co.jp/prime/'})
         self.__timestamp = None
@@ -308,7 +317,7 @@ class SODPrime(OrderedAdultProducer, JaActorProducer):
                     actors.append({
                         'aid': aid,
                         'name': box.select_one('p').text.strip(),
-                        'avatar': OptionalValue(box.select_one('img')['src']).filter(lambda x: 'placeholder' in x).get(),
+                        'images': OptionalValue(box.select_one('img')['src']).filter(lambda x: 'placeholder' not in x).get(),
                         'source': self.root_uri + '/prime/videos/genre/?actress[]=' + aid
                     })
                 page += 1
@@ -366,26 +375,26 @@ class SODPrime(OrderedAdultProducer, JaActorProducer):
             'images': [x['src'] for x in soup.select('.img-gallery img')],
             'serial_number': infos[0].select('td')[-1].text.strip(),
             'release_date': datetime.strptime(head.select_one('.videos_detail').contents[2].text.strip().replace(' ', '')[-11:], '%Y年%m月%d日').date(),
-            'series': OptionalValue(infos[2].select_one('a')).map(lambda x: x.text.strip()).not_empty().value,
+            'series': [x.text.strip() for x in infos[2].select('a')],
             'actors': [x.text.strip() for x in infos[4].select('a')],
             'duration': OptionalValue(infos[5].select('td')[-1].text.strip()).not_blank().filter(lambda x: x != '分').get(),
             'director': [x.text.strip() for x in infos[6].select('a')],
-            'producer': OptionalValue(infos[7].select_one('a')).map(lambda x: x.text.strip()).not_empty().value,
+            'producer': [x.text.strip() for x in infos[7].select('a')],
             'genres': [x.text.strip() for x in infos[9].select('a')],
             'trailer': video_soup.select_one('#moviebox source')['src'],
             'source': self.root_uri + '/prime/videos/?id=' + wid
         }
 
     def refactor_work(self, work: dict) -> None:
-        super().refactor_work(work)
+        work['producer'] = '#'.join(work['producer'])
         work['duration'] = OptionalValue(work.get('duration')).map(lambda x: int(x.rstrip('分')) * 60).get()
-        work['producer'] = self.name
 
 
-class IEnergy(MonthlyAdultProducer):
+class IEnergy(MonthlyAdultSite):
     duration_regexp = re.compile('(\\d+)(分.*)?')
 
     def __init__(self):
+        warnings.warn('These producers are deprecated for most works are included in SODPrime', DeprecationWarning)
         super().__init__('http://www.ienergy1.com/', YearMonth(2007, 5), name='i-energy', headers={'Cookie': 'over18=Yes'})
 
     def _list_monthly(self, ym: YearMonth) -> List[dict]:
@@ -417,13 +426,13 @@ class IEnergy(MonthlyAdultProducer):
         }
 
     def refactor_work(self, work: dict) -> None:
-        super().refactor_work(work)
+        work['producer'] = self.name
         work['duration'] = OptionalValue(work.get('duration')).map(lambda x: x * 60).value
 
 
-class Rocket(MonthlyAdultProducer):
+class Rocket(MonthlyAdultSite):
     def __init__(self):
-        warnings.warn('', DeprecationWarning)
+        warnings.warn('These producers are deprecated for most works are included in SODPrime', DeprecationWarning)
         super().__init__('https://www.rocket-inc.net/top.php', YearMonth(2008, 1), name='rocket')
 
     def _list_monthly(self, ym: YearMonth) -> List[dict]:
@@ -454,17 +463,15 @@ class Rocket(MonthlyAdultProducer):
         }
 
     def refactor_work(self, work: dict) -> None:
-        super().refactor_work(work)
+        work['producer'] = self.name
         work['duration'] = int(work['duration'].rstrip('分')) * 60
         work['actors'] = [x for x in work['actors'] if 0 < len(x) < 32]
 
 
 sod_prime = SODPrime()
-# These producers are deprecated for most works are included in SODPrime
-sod_producers = [IEnergy(), Rocket()]
 
 
-class Caribbean(OrderedAdultProducer, JaActorProducer):
+class Caribbean(OrderedAdultSite, JaActorSite):
 
     def __init__(self):
         super().__init__('https://www.caribbeancom.com/index2.htm', name='caribbean', encoding='EUC-JP')
@@ -477,7 +484,7 @@ class Caribbean(OrderedAdultProducer, JaActorProducer):
                 actors.append({
                     'aid': aid,
                     'name': item.select_one('.meta-name').text.strip(),
-                    'avatar': self.root_uri + item.select_one('img')['src'],
+                    'images': self.root_uri + item.select_one('img')['src'],
                     'source': self.root_uri + f'/search_act/{aid}/1.html'
                 })
         return actors
@@ -520,7 +527,7 @@ class Caribbean(OrderedAdultProducer, JaActorProducer):
         }
 
     def refactor_work(self, work: dict) -> None:
-        super().refactor_work(work)
+        work['producer'] = self.name
         work['serial_number'] = work['wid']
         if work['duration'] is not None:
             seconds = 0
@@ -530,7 +537,7 @@ class Caribbean(OrderedAdultProducer, JaActorProducer):
         work['actors'] = [x for x in work['actors'] if x != '---']
 
 
-class OnePondo(OrderedAdultProducer, JaActorProducer):
+class OnePondo(OrderedAdultSite, JaActorSite):
     def __init__(self):
         super().__init__('https://www.1pondo.tv/', name='1pondo')
 
@@ -560,7 +567,7 @@ class OnePondo(OrderedAdultProducer, JaActorProducer):
         return self.get_json(f'/dyn/phpauto/movie_details/movie_id/{wid}.json', cache=True)
 
     def refactor_work(self, work: dict) -> None:
-        super().refactor_work(work)
+        work['producer'] = self.name
         work['title'] = work['Title']
         work['serial_number'] = work['MovieID']
         work['year'] = work['Year']
@@ -578,7 +585,7 @@ class OnePondo(OrderedAdultProducer, JaActorProducer):
         work['actors'] = [x for x in work['ActressesJa'] if x != '---']
 
 
-class Kin8tengoku(OrderedAdultProducer):
+class Kin8tengoku(OrderedAdultSite):
     def __init__(self):
         super().__init__('https://www.kin8tengoku.com/index.html', name='kin8tengoku', encoding='EUC-JP')
 
@@ -621,7 +628,7 @@ class Kin8tengoku(OrderedAdultProducer):
         }
 
     def refactor_work(self, work: dict) -> None:
-        super().refactor_work(work)
+        work['producer'] = self.name
         work['serial_number'] = 'KIN8-' + work['wid']
         duration = work.get('duration')
         if duration is not None:
@@ -632,7 +639,7 @@ class Kin8tengoku(OrderedAdultProducer):
 d2pass_producers = [Caribbean(), OnePondo(), Kin8tengoku()]
 
 
-class Venus(MonthlyAdultProducer):
+class Venus(MonthlyAdultSite):
     def __init__(self):
         super().__init__('https://venus-av.com/', YearMonth(2009, 4), name='venus')
 
@@ -657,7 +664,7 @@ class Venus(MonthlyAdultProducer):
         }
 
 
-class Indies(MonthlyAdultProducer, JaActorProducer):
+class Indies(MonthlyAdultSite, JaActorSite):
     measurements_regexp = re.compile('B:(\\d{2,3})?cm\\(([A-O])?カップ\\) / W: (\\d{2})?cm / H:(\\d{2,3})?cm')
 
     def __init__(self):
@@ -673,8 +680,8 @@ class Indies(MonthlyAdultProducer, JaActorProducer):
                     aid = li.select_one('a')['href'].strip('/').split('/')[-1]
                     actor = {
                         'aid': aid,
-                        'avatar': li.select_one('img')['src'],
                         'name': li.select_one('p').text.strip(),
+                        'images': li.select_one('img')['src'],
                         'source': self.root_uri + f'{prefix}/page/{page}/'
                     }
                     try:
@@ -739,6 +746,7 @@ class Indies(MonthlyAdultProducer, JaActorProducer):
             'description': soup.select_one('[name="twitter:description"]')['content'].strip(),
             'actors': [x.strip() for x in re.split('[／/、]', metadata.get('女優名').text.strip())],
             'serial_number': soup.select_one('[itemprop="sku"]').text.strip(),
+            'series': [x.text.strip() for x in metadata.get('シリーズ').select('a')],
             'director': metadata.get('監督').text.strip(),
             'duration': OptionalValue(metadata.get('収録時間').text.strip()).filter(lambda x: x != '分' and x != '0分').get(),
             'release_date': date.fromisoformat(soup.select_one('[itemprop="releaseDate"]')['content']),
@@ -749,11 +757,11 @@ class Indies(MonthlyAdultProducer, JaActorProducer):
         }
 
     def refactor_work(self, work: dict) -> None:
-        super().refactor_work(work)
+        work['producer'] = self.name
         work['duration'] = OptionalValue(work.get('duration')).map(lambda x: int(x.rstrip('分')) * 60).get()
 
 
-class Planetplus(MonthlyAdultProducer):
+class Planetplus(MonthlyAdultSite):
     def __init__(self):
         super().__init__('http://planetplus.jp/wp01/', YearMonth(2008, 6), name='planetplus')
         self.__tags = {}
@@ -796,11 +804,11 @@ class Planetplus(MonthlyAdultProducer):
         }
 
     def refactor_work(self, work: dict) -> None:
-        super().refactor_work(work)
+        work['producer'] = self.name
         work['duration'] = OptionalValue(work['duration']).map(lambda x: int(x.rstrip('分')) * 60).get()
 
 
-class Deeps(OrderedAdultProducer):
+class Deeps(OrderedAdultSite):
     def __init__(self):
         super().__init__('https://deeps.net/', name='deeps')
 
@@ -843,12 +851,12 @@ class Deeps(OrderedAdultProducer):
         }
 
     def refactor_work(self, work: dict) -> None:
-        super().refactor_work(work)
+        work['producer'] = self.name
         work['duration'] = OptionalValue(work.get('duration')).map(lambda x: int(work.get('duration').rstrip('分')) * 60).get()
         work['source'] = self.root_uri + f'/product/{work["wid"]}/'
 
 
-class Maxing(OrderedAdultProducer, JaActorProducer):
+class Maxing(OrderedAdultSite, JaActorSite):
     def __init__(self):
         super().__init__('https://www.maxing.jp/top/', name='maxing', encoding='EUC-JP')
 
@@ -859,7 +867,7 @@ class Maxing(OrderedAdultProducer, JaActorProducer):
             for td in soup.select('#actList .actTd'):
                 actors.append({
                     'name': td.select_one('p').text.strip(),
-                    'avatar': td.select_one('img')['src'],
+                    'images': td.select_one('img')['src'],
                     'source': td.select_one('a')['href'],
                 })
             if soup.select('p[align] a')[-1].select_one('img') is None:
@@ -910,11 +918,11 @@ class Maxing(OrderedAdultProducer, JaActorProducer):
         }
 
     def refactor_work(self, work: dict) -> None:
-        super().refactor_work(work)
+        work['producer'] = self.name
         work['duration'] = OptionalValue(work['duration']).map(lambda x: x * 60).get()
 
 
-class CrystalEizou(MonthlyAdultProducer):
+class CrystalEizou(MonthlyAdultSite):
     def __init__(self):
         super().__init__('https://www.crystal-eizou.jp/info/index.html', YearMonth(2014, 5), name='crystal-eizou')
 
@@ -946,11 +954,11 @@ class CrystalEizou(MonthlyAdultProducer):
         raise NotSupported
 
     def refactor_work(self, work: dict) -> None:
-        super().refactor_work(work)
+        work['producer'] = self.name
         work['duration'] = int(work['duration'].rstrip('分')) * 60
 
 
-class Faleno(AdultProducer):
+class Faleno(AdultSite):
     sn_regexp = re.compile('([a-z]+)-?(\\d{3}[a-z]?)')
 
     def __init__(self):
@@ -988,10 +996,50 @@ class Faleno(AdultProducer):
         }
 
     def refactor_work(self, work: dict) -> None:
-        super().refactor_work(work)
+        work['producer'] = self.name
         match = self.sn_regexp.fullmatch(work['wid'])
         work['serial_number'] = (match.group(1) + '-' + match.group(2)).upper()
         work['duration'] = OptionalValue(work.get('duration')).map(lambda x: int(x.rstrip('分')) * 60).get()
 
 
 other_producers = [Venus(), Indies(), Planetplus(), Deeps(), Maxing(), CrystalEizou(), Faleno()]
+
+
+def persist_producer(site: AdultSite, dirpath, sn_regexp):
+    log.info('Start persisting actors and works of %s', site.name)
+    if dirpath is None:
+        dirpath = os.path.dirname(os.path.join(__file__))
+    site_name = site.name
+    if isinstance(site, ActorSite):
+        actors = import_data(os.path.join(dirpath, 'actor', site_name + '.json'), site.list_actors, site.refactor_actor)
+        export_data(os.path.join(dirpath, 'actor/export', site_name + '-export.json'), actors, kingen_web.import_actor)
+
+    work_path = os.path.join(dirpath, 'work', site_name + '.json')
+    if isinstance(site, OrderedAdultSite):
+        works = import_ordered_works(work_path, site)
+    elif isinstance(site, MonthlyAdultSite):
+        works = import_monthly_works(work_path, site)
+    else:
+        works = import_data(work_path, site.list_works, site.refactor_work)
+    if validate_works(works, sn_regexp, ordered=isinstance(site, OrderedAdultSite)):
+        export_data(os.path.join(dirpath, 'work/export', site_name + '-export.json'), works, kingen_web.import_work)
+
+
+if __name__ == '__main__':
+    for producer in will_producers:
+        persist_producer(producer, 'tmp/will', sn_regexp=re.compile('[A-Z]{2,6}-\\d{3}'))
+
+    persist_producer(Caribbean(), 'tmp', sn_regexp=re.compile('(\\d{6}-\\d{3}|vip_\\d{3}|022305-vip|092904-h00)'))
+    persist_producer(OnePondo(), 'tmp', sn_regexp=re.compile('\\d{6}_\\d{3}|081007_00a'))
+    persist_producer(Kin8tengoku(), 'tmp', sn_regexp=re.compile('KIN8-\\d{4}'))
+
+    persist_producer(Venus(), 'tmp', sn_regexp=re.compile('([A-Z]{3,4}-\\d{3}|100)'))
+    persist_producer(Indies(), 'tmp', sn_regexp=re.compile('([A-Z]{3,4}-\\d{3}|D1CLYMAX-010)'))
+    persist_producer(Planetplus(), 'tmp', sn_regexp=re.compile('[A-Z]{4}-\\d{2,3}'))
+    persist_producer(Deeps(), 'tmp', sn_regexp=re.compile('([A-Z]{4,6}-\\d{3}|OPEN-0752|OPEN-0708)'))
+    persist_producer(Maxing(), 'tmp', sn_regexp=re.compile('([A-Z]{4,5}-\\d{3,4}(S|D|SP|P|SD)?|MX3DS-\\d{3}|MXBD-30)'))
+    persist_producer(CrystalEizou(), 'tmp', sn_regexp=re.compile('([A-Z]{3,4}|R18)-\\d{3}'))
+    persist_producer(Faleno(), 'tmp', sn_regexp=re.compile('[A-Z]{4,5}-\\d{3}[B-D]?'))
+
+    persist_producer(prestige, 'tmp', sn_regexp=re.compile('[A-Z]{3,7}-\\d{3}'))
+    persist_producer(sod_prime, 'tmp/sod', sn_regexp=re.compile('[A-Z\\d]+(-[A-Z\\d]+){1,3}'))
