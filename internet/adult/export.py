@@ -17,7 +17,7 @@ from internet.adult import original_date, OrderedAdultSite, MonthlyAdultSite
 
 log = create_logger(__name__)
 
-update_interval = timedelta(days=7)
+update_interval = timedelta(days=30)
 
 
 class KingenWeb(BaseSite):
@@ -34,7 +34,31 @@ class KingenWeb(BaseSite):
 kingen_web = KingenWeb()
 
 
-def import_data(filepath, list_func, refactor_func):
+def export_data(data: List[dict], export_func):
+    """
+    Exports data by the specific function.
+    """
+    ignored, updated, errors = 0, 0, []
+    for datum in data:
+        datum = json.loads(json.dumps(datum, ensure_ascii=False, cls=ComplexEncoder))
+        result = export_func(datum)
+        if result['code'] == 0:
+            if result['updated']:
+                updated += 1
+            else:
+                ignored += 1
+        else:
+            errors.append({'error': result, 'source': datum})
+    return {
+        'update_at': datetime.now(),
+        'ignored': ignored,
+        'updated': updated,
+        'errors_count': len(errors),
+        'errors': errors
+    }
+
+
+def import_data(filepath, list_func, refactor_func, export_func=None) -> None:
     """
     Imports the result of the functions to destination json file.
     """
@@ -45,6 +69,7 @@ def import_data(filepath, list_func, refactor_func):
             content: dict = json.load(fp)
         update_at = datetime.strptime(content['update_at'], '%Y-%m-%d %H:%M:%S.%f')
 
+    updated = False
     if datetime.now() - update_at >= update_interval:
         data = [x.copy() for x in list_func()]
         for datum in data:
@@ -54,12 +79,16 @@ def import_data(filepath, list_func, refactor_func):
             'count': len(data),
             'data': data
         }
+        updated = True
+    if 'export' not in content and export_func is not None:
+        content['export'] = export_data(content['data'], export_func)
+        updated = True
+    if updated:
         with open(filepath, 'w', encoding='utf-8') as fp:
             json.dump(content, fp, ensure_ascii=False, cls=ComplexEncoder)
-    return content['data']
 
 
-def import_ordered_works(filepath, site: OrderedAdultSite):
+def import_ordered_works(filepath, site: OrderedAdultSite, export_func=None) -> None:
     """
     Imports in-order works of the given site to destination json file.
     """
@@ -70,6 +99,7 @@ def import_ordered_works(filepath, site: OrderedAdultSite):
             records: List[dict] = json.load(fp)
         start = date.fromisoformat(records[0]['stop'])
 
+    updated = False
     if stop - start >= update_interval:
         works = [x.copy() for x in site.list_works_between(start, stop)]
         for work in works:
@@ -82,12 +112,17 @@ def import_ordered_works(filepath, site: OrderedAdultSite):
             'data': works
         }
         records.insert(0, record)
+        updated = True
+    for record in records:
+        if 'export' not in record and export_func is not None:
+            record['export'] = export_data(record['data'], export_func)
+            updated = True
+    if updated:
         with open(filepath, 'w', encoding='utf-8') as fp:
             json.dump(records, fp, ensure_ascii=False, cls=ComplexEncoder)
-    return records[0]['data']
 
 
-def import_monthly_works(filepath, site: MonthlyAdultSite):
+def import_monthly_works(filepath, site: MonthlyAdultSite, export_func=None) -> None:
     """
     Imports monthly works of the given site to destination json file.
     """
@@ -98,6 +133,7 @@ def import_monthly_works(filepath, site: MonthlyAdultSite):
             records: List[dict] = json.load(fp)
         start = YearMonth.parse(records[0]['stop'])
 
+    updated = False
     if start < stop:
         works = [x.copy() for x in site.list_works_between(start, stop)]
         for work in works:
@@ -110,9 +146,14 @@ def import_monthly_works(filepath, site: MonthlyAdultSite):
             'data': works
         }
         records.insert(0, record)
+        updated = True
+    for record in records:
+        if 'export' not in record and export_func is not None:
+            record['export'] = export_data(record['data'], export_func)
+            updated = True
+    if updated:
         with open(filepath, 'w', encoding='utf-8') as fp:
             json.dump(records, fp, ensure_ascii=False, cls=ComplexEncoder)
-    return records[0]['data']
 
 
 def validate_works(works: List[dict], sn_regexp: Pattern, ordered=True) -> bool:
@@ -138,38 +179,3 @@ def validate_works(works: List[dict], sn_regexp: Pattern, ordered=True) -> bool:
                 log.error('not descending release date from [%s] to [%s]', last_date, release_date)
             last_date = release_date
     return all_valid
-
-
-def export_data(filepath, data: List[dict], export_func, batch_size=0x1fff):
-    """
-    Exports data by the specific importing function.
-    """
-    if len(data) > batch_size:
-        basename, ext = os.path.splitext(filepath)
-        for i in range(0, len(data), batch_size):
-            j = min(i + batch_size, len(data))
-            batch_path = basename + '-' + str(i // batch_size) + ext
-            export_data(batch_path, data[i:j], export_func)
-        return
-
-    if os.path.exists(filepath):
-        return
-    ignored, updated, errors = 0, 0, []
-    for datum in data:
-        result = export_func(datum)
-        if result['code'] == 0:
-            if result['updated']:
-                updated += 1
-            else:
-                ignored += 1
-        else:
-            errors.append({'error': result, 'source': datum})
-    content = {
-        'ignored': ignored,
-        'updated': updated,
-        'errors_count': len(errors),
-        'errors': errors
-    }
-    os.makedirs(os.path.dirname(filepath), exist_ok=True)
-    with open(filepath, 'w', encoding='utf-8') as fp:
-        json.dump(content, fp, ensure_ascii=False, cls=ComplexEncoder)
