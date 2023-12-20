@@ -12,6 +12,7 @@ from typing import Optional
 from urllib.parse import urlencode
 
 import requests
+import unicodedata
 from bs4 import BeautifulSoup
 from urllib3.util import parse_url
 
@@ -57,6 +58,11 @@ class BaseSite:
     def get_json(self, path, params=None, cache=False, retry=False):
         return json.loads(self._do_get_cacheable(path, params, cache, retry))
 
+    def format_json(self, data):
+        if data is None:
+            return None
+        return json.loads(json.dumps(data, ensure_ascii=False, cls=common.ComplexEncoder))
+
     def post_json(self, path, params=None):
         return json.loads(self._do_post(path, json_data=params))
 
@@ -75,6 +81,7 @@ class BaseSite:
         else:
             log.info('Getting for %s%s', self.root_uri, path)
         response = self.__session.get(self.root_uri + path, params=params, headers=self.__headers)
+        response.raise_for_status()
         return response.content.decode(self.__encoding, errors='ignore')
 
     def _do_post(self, path, query_params: dict = None, data=None, json_data=None):
@@ -121,3 +128,13 @@ def run_cacheable(filepath, do_func, op='cache'):
         return do_func()
 
     raise ValueError('cannot run with unknown operation: ' + op)
+
+
+def normalize_str(s: str):
+    res = ''
+    for ch in s:
+        width = unicodedata.east_asian_width(ch)
+        if width == 'F' or width == 'H':
+            ch = unicodedata.normalize('NFKC', ch)
+        res += ch
+    return res

@@ -62,6 +62,9 @@ class OptionalValue:
     def get(self, default=None):
         return self.__value or default
 
+    def not_value(self, value):
+        return self.filter(lambda x: x != value)
+
     def not_blank(self):
         if isinstance(self.__value, list):
             return self.map(lambda xs: [x for x in xs if len(x.strip()) > 0])

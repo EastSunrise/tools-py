@@ -17,78 +17,95 @@ from internet.adult import original_date, OrderedAdultSite, MonthlyAdultSite
 
 log = create_logger(__name__)
 
-update_interval = timedelta(days=30)
-
 
 class KingenWeb(BaseSite):
     def __init__(self, home='http://127.0.0.1:12301/'):
         super().__init__(home, 'kingen-web')
 
     def import_actor(self, actor: dict):
-        return self.post_json('/study/actor/import', params=actor)
+        return self.post_json('/study/actor/import', params=self.format_json(actor))
 
     def import_work(self, work: dict):
-        return self.post_json('/study/work/import', params=work)
+        return self.post_json('/study/work/import', params=self.format_json(work))
+
+    def import_resources(self, sn: str, resources: List[dict]):
+        return self.post_json(f'/study/work/{sn}/resource/import', params=resources)
 
 
-kingen_web = KingenWeb()
-
-
-def export_data(data: List[dict], export_func):
+def export_data(data_file, export_func):
     """
     Exports data by the specific function.
     """
-    ignored, updated, errors = 0, 0, []
-    for datum in data:
-        datum = json.loads(json.dumps(datum, ensure_ascii=False, cls=ComplexEncoder))
-        result = export_func(datum)
-        if result['code'] == 0:
-            if result['updated']:
-                updated += 1
+    if not os.path.exists(data_file):
+        return
+    with open(data_file, 'r', encoding='utf-8') as fp:
+        records: List[dict] = json.load(fp)
+    filename, ext = os.path.splitext(data_file)
+    export_file = filename + '-export' + ext
+    if os.path.exists(export_file):
+        with open(export_file, 'r', encoding='utf-8') as fp:
+            exports: List[dict] = json.load(fp)
+    else:
+        exports: List[dict] = []
+
+    changed = False
+    for i in range(len(records)):
+        if i >= len(exports) or exports[i]['record_at'] != records[i]['update_at']:
+            changed = True
+            ignored, updated, errors = 0, 0, []
+            for datum in records[i]['data']:
+                datum = json.loads(json.dumps(datum, ensure_ascii=False, cls=ComplexEncoder))
+                result = export_func(datum)
+                if result['code'] == 0:
+                    if result['updated']:
+                        updated += 1
+                    else:
+                        ignored += 1
+                else:
+                    errors.append({'error': result, 'source': datum})
+            export = {
+                'record_at': records[i]['update_at'],
+                'update_at': datetime.now(),
+                'ignored': ignored,
+                'updated': updated,
+                'errors_count': len(errors),
+                'errors': errors
+            }
+            if i >= len(exports):
+                exports.append(export)
             else:
-                ignored += 1
-        else:
-            errors.append({'error': result, 'source': datum})
-    return {
-        'update_at': datetime.now(),
-        'ignored': ignored,
-        'updated': updated,
-        'errors_count': len(errors),
-        'errors': errors
-    }
+                exports[i] = export
+    if changed:
+        with open(export_file, 'w', encoding='utf-8') as fp:
+            json.dump(exports, fp, ensure_ascii=False, cls=ComplexEncoder)
 
 
-def import_data(filepath, list_func, refactor_func, export_func=None) -> None:
+def import_data(filepath, list_func, refactor_func, interval=timedelta(days=14)) -> None:
     """
     Imports the result of the functions to destination json file.
     """
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
-    update_at, content = datetime.combine(original_date, time_cls()), {}
     if os.path.exists(filepath):
         with open(filepath, 'r', encoding='utf-8') as fp:
-            content: dict = json.load(fp)
-        update_at = datetime.strptime(content['update_at'], '%Y-%m-%d %H:%M:%S.%f')
+            records: List[dict] = json.load(fp)
+        update_at = datetime.strptime(records[-1]['update_at'], '%Y-%m-%d %H:%M:%S.%f')
+    else:
+        update_at = datetime.combine(original_date, time_cls())
 
-    updated = False
-    if datetime.now() - update_at >= update_interval:
+    if datetime.now() - update_at >= interval:
         data = [x.copy() for x in list_func()]
         for datum in data:
             refactor_func(datum)
-        content = {
+        records = [{
             'update_at': datetime.now(),
             'count': len(data),
             'data': data
-        }
-        updated = True
-    if 'export' not in content and export_func is not None:
-        content['export'] = export_data(content['data'], export_func)
-        updated = True
-    if updated:
+        }]
         with open(filepath, 'w', encoding='utf-8') as fp:
-            json.dump(content, fp, ensure_ascii=False, cls=ComplexEncoder)
+            json.dump(records, fp, ensure_ascii=False, cls=ComplexEncoder)
 
 
-def import_ordered_works(filepath, site: OrderedAdultSite, export_func=None) -> None:
+def import_ordered_works(filepath, site: OrderedAdultSite, interval=timedelta(days=7)) -> None:
     """
     Imports in-order works of the given site to destination json file.
     """
@@ -97,32 +114,24 @@ def import_ordered_works(filepath, site: OrderedAdultSite, export_func=None) -> 
     if os.path.exists(filepath):
         with open(filepath, 'r', encoding='utf-8') as fp:
             records: List[dict] = json.load(fp)
-        start = date.fromisoformat(records[0]['stop'])
+        start = date.fromisoformat(records[-1]['stop'])
 
-    updated = False
-    if stop - start >= update_interval:
+    if stop - start >= interval:
         works = [x.copy() for x in site.list_works_between(start, stop)]
         for work in works:
             site.refactor_work(work)
-        record = {
+        records.append({
             'update_at': datetime.now(),
             'start': start,
             'stop': stop,
             'count': len(works),
             'data': works
-        }
-        records.insert(0, record)
-        updated = True
-    for record in records:
-        if 'export' not in record and export_func is not None:
-            record['export'] = export_data(record['data'], export_func)
-            updated = True
-    if updated:
+        })
         with open(filepath, 'w', encoding='utf-8') as fp:
             json.dump(records, fp, ensure_ascii=False, cls=ComplexEncoder)
 
 
-def import_monthly_works(filepath, site: MonthlyAdultSite, export_func=None) -> None:
+def import_monthly_works(filepath, site: MonthlyAdultSite) -> None:
     """
     Imports monthly works of the given site to destination json file.
     """
@@ -131,41 +140,31 @@ def import_monthly_works(filepath, site: MonthlyAdultSite, export_func=None) -> 
     if os.path.exists(filepath):
         with open(filepath, 'r', encoding='utf-8') as fp:
             records: List[dict] = json.load(fp)
-        start = YearMonth.parse(records[0]['stop'])
+        start = YearMonth.parse(records[-1]['stop'])
 
-    updated = False
     if start < stop:
         works = [x.copy() for x in site.list_works_between(start, stop)]
         for work in works:
             site.refactor_work(work)
-        record = {
+        records.append({
             'update_at': datetime.now(),
             'start': str(start),
             'stop': str(stop),
             'count': len(works),
             'data': works
-        }
-        records.insert(0, record)
-        updated = True
-    for record in records:
-        if 'export' not in record and export_func is not None:
-            record['export'] = export_data(record['data'], export_func)
-            updated = True
-    if updated:
+        })
         with open(filepath, 'w', encoding='utf-8') as fp:
             json.dump(records, fp, ensure_ascii=False, cls=ComplexEncoder)
 
 
-def validate_works(works: List[dict], sn_regexp: Pattern, ordered=True) -> bool:
+def validate_works(works: List[dict], sn_regexp: Pattern, ordered=True) -> None:
     """
     Validates properties of given works.
     """
-    all_valid = True
     log.debug('# checking serial_numbers')
     for work in works:
         sn = work.get('serial_number')
         if sn is not None and sn_regexp.fullmatch(sn) is None:
-            all_valid = False
             log.error('mismatched sn: ' + sn)
 
     if ordered:
@@ -178,4 +177,3 @@ def validate_works(works: List[dict], sn_regexp: Pattern, ordered=True) -> bool:
             elif last_date is not None and last_date < release_date:
                 log.error('not descending release date from [%s] to [%s]', last_date, release_date)
             last_date = release_date
-    return all_valid

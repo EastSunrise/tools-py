@@ -7,19 +7,25 @@ Japanese adult producers.
 """
 import os
 import re
+import time
 from abc import ABC
 from collections import OrderedDict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from queue import Queue
 from typing import List
 from urllib import parse
+from urllib.parse import urlparse, urljoin
 
+import execjs
 from bs4 import BeautifulSoup
+from requests import HTTPError
 from scrapy.exceptions import NotSupported
 from urllib3.util import parse_url
 from werkzeug.exceptions import NotFound, BadGateway
 
+import internet
 from common import OptionalValue, create_logger, YearMonth
+from internet import normalize_str
 from internet.adult import ActorSite, AdultSite, OrderedAdultSite, MonthlyAdultSite, export
 
 log = create_logger(__name__)
@@ -37,6 +43,13 @@ ja_syllabary = [
     'ら', 'り', 'る', 'れ', 'ろ',
     'わ', 'を'
 ]
+
+
+def format_en_name(en_name, reverse=False):
+    parts = [x.lower().capitalize() for x in re.split('\\s', en_name.strip()) if x.strip() != '']
+    if reverse:
+        parts.reverse()
+    return ' '.join(parts)
 
 
 class JaActorSite(ActorSite, ABC):
@@ -175,7 +188,7 @@ class WillProducer(BaseWillProducer, JaActorSite):
         birthday_op = OptionalValue(info.get('誕生日')).map(lambda x: self.birthday_regexp.fullmatch(x)).map(lambda x: x.group())
         return {
             'aid': aid,
-            'name': headers[0].text.strip(),
+            'name': normalize_str(headers[0].text.strip()).lower().capitalize(),
             'en_name': ' '.join([x.strip().lower().capitalize() for x in re.split('[\\s　]', headers[1].text.strip()) if x.strip() != '']),
             'image': OptionalValue(soup.select_one('.p-profile__imgArea img')).map(lambda x: x['data-src']).get(),
             'birthday': birthday_op.map(lambda x: datetime.strptime(x, '%Y年%m月%d日').date()).get(),
@@ -194,10 +207,6 @@ class WillProducer(BaseWillProducer, JaActorSite):
             actor['measurements'] = f'B{match.group(1)}({match.group(2)})/W{match.group(3)}/H{match.group(4)}'
 
 
-# WillProducer('https://www.mousouzoku-av.com/top/')
-# WillProducer('https://www.mutekimuteki.com/top/')
-# WillProducer('https://manji-group.com/top/')
-# WillProducer('http://www.hobicolle.com/')
 will_producers = [
     WillProducer('https://moodyz.com/top', name='moodyz'),
     WillProducer('https://wanz-factory.com/top', name='wanz-factory'),
@@ -326,7 +335,7 @@ class OnePondo(OrderedAdultSite, JaActorSite):
         work['title'] = work['Title'].strip()
         work['serial_number'] = work['MovieID'].upper()
         work['year'] = work['Year']
-        work['cover2'] = work['ThumbUltra']
+        work['cover2'] = self.root_uri + urlparse(work['ThumbUltra']).path
         work['duration'] = work['Duration']
         work['release_date'] = work['Release']
         work['series'] = OptionalValue(work['Series']).strip().get()
@@ -334,8 +343,11 @@ class OnePondo(OrderedAdultSite, JaActorSite):
         work['genres'] = work['UCNAME']
         work['trailer'] = sorted(work['SampleFiles'], key=lambda x: x['FileSize'])[-1]['URL'] if 'SampleFiles' in work else None
         if work['Gallery']:
-            images = self.get_json(f'/dyn/dla/json/movie_gallery/{work["MovieID"]}.json', cache=True)['Rows']
-            work['images'] = [self.root_uri + '/dyn/dla/images/' + x['Img'] for x in images]
+            try:
+                images = self.get_json(f'/dyn/dla/json/movie_gallery/{work["MovieID"]}.json', cache=True)['Rows']
+                work['images'] = [self.root_uri + '/dyn/dla/images/' + x['Img'] for x in images]
+            except HTTPError:
+                pass
         work['source'] = self.root_uri + f'/movies/{work["MovieID"]}/'
         work['actors'] = [x.strip() for x in work['ActressesJa'] if x != '---']
 
@@ -391,8 +403,12 @@ d2pass_producers = [Caribbean(), OnePondo(), Kin8tengoku()]
 
 
 class Prestige(OrderedAdultSite, JaActorSite):
+    nuxt_regexp = re.compile('window.__NUXT__=(.*);')
+    js_ctx = execjs.compile('')
+    prefixes = ['GOOE', 'PTKT', 'CTKT', 'STKT', 'TKT']
+
     def __init__(self):
-        super().__init__('https://prestige-av.com', name='prestige')
+        super().__init__('https://prestige-av.com', name='prestige', headers={'Cookie': '__age_auth__=true'})
 
     def list_actors(self) -> List[dict]:
         return self.get_json('/api/actress')['list']
@@ -401,7 +417,7 @@ class Prestige(OrderedAdultSite, JaActorSite):
         super().refactor_actor(actor)
         actor['source'] = self.root_uri + '/goods?actress=' + actor['name']
         actor['name'] = actor['name'].replace(' ', '')
-        actor['en_name'] = OptionalValue(actor['nameRoma']).not_blank().get()
+        actor['en_name'] = OptionalValue(actor['nameRoma']).not_blank().map(lambda x: format_en_name(x, True)).get()
         actor['image'] = OptionalValue(actor['media']).map(lambda x: self.media(x['path'])).get()
 
     def list_works_between(self, start: date, stop: date) -> List[dict]:
@@ -417,40 +433,151 @@ class Prestige(OrderedAdultSite, JaActorSite):
                 'date[]': release['salesStartAt'],
                 'from': 0, 'size': 100, 'order': 'new'
             }
-            data = self.get_json('/api/search', params=params, cache=True)
+            data = self.get_json('/api/search', params=params, cache=date.today() - release_date >= timedelta(days=7))
             for doc in data['hits']['hits']:
-                source = doc['_source']
-                pid = source['productUuid']
-                sn = source['deliveryItemId']
-                if pid in works:
-                    if sn in works[pid]['serial_number']:
-                        works[pid]['serial_number'] = sn
-                    continue
+                source: dict = doc['_source']
                 source['release_date'] = release_date
-                source['serial_number'] = source['deliveryItemId']
-                works[pid] = source
+                sn = self._format_sn(source['deliveryItemId'])
+                if sn not in works:
+                    try:
+                        source.update(self.get_work_detail(source['productUuid']))
+                    except NotFound:
+                        continue
+                    works[sn] = source
         return list(works.values())
 
-    def refactor_work(self, work: dict) -> None:
-        if len(work['productMaker']) > 1:
-            raise ValueError('more than one producers: ' + work['productUuid'])
-        work['producer'] = work['productMaker'][0]['name']
-        work['serial_number'] = work['deliveryItemId']
-        work['title'] = work['productTitle'].strip()
-        work['cover'] = OptionalValue(work.get('productThumbnail')).map(lambda x: self.media(x['path'])).get()
-        work['director'] = [x['searchName'].strip() for x in work['productDirectors']]
-        work['series'] = [x['name'].strip() for x in work['productSeries']]
-        work['description'] = OptionalValue(work['productBody']).strip().not_blank().get()
-        work['genres'] = [x['name'].strip() for x in work['productGenre']]
-        work['trailer'] = OptionalValue(work.get('productMovie')).map(lambda x: self.media(x['path'])).get()
-        work['source'] = self.root_uri + '/goods/' + work['productUuid']
-        work['actors'] = [y for x in work['productActress'] for y in x['searchName'].strip('/').split('/')]
-
     def get_work_detail(self, wid) -> dict:
-        raise NotSupported
+        soup = self.get_soup(f'/goods/{wid}', cache=True)
+        js_func = self.nuxt_regexp.fullmatch(soup.select_one('body script').text).group(1)
+        nuxt = self.js_ctx.eval(js_func)
+        for data in nuxt['fetch'].values():
+            if 'product' in data:
+                return data['product']
+        raise NotFound()
+
+    def refactor_work(self, work: dict) -> None:
+        work['serial_number'] = self._format_sn(work['sku'][0]['deliveryItemId'])
+        work['title'] = work['title'].strip()
+        work['cover'] = OptionalValue(work['thumbnail']).map(lambda x: self.media(x['path'])).get()
+        work['cover2'] = OptionalValue(work['packageImage']).map(lambda x: self.media(x['path'])).get()
+        work['duration'] = OptionalValue(work['playTime']).filter(lambda x: x != 0).map(lambda x: x * 60).get()
+        work['director'] = [x['name'].strip() for x in work['directors']]
+        work['producer'] = work['maker']['name']
+        work['series'] = OptionalValue(work['series']).map(lambda x: x['name']).strip().get()
+        work['description'] = OptionalValue(work['body']).strip().not_blank().get()
+        work['genres'] = [x['name'].strip() for x in work['genre']]
+        work['trailer'] = OptionalValue(work['movie']).map(lambda x: self.media(x['path'])).get()
+        work['images'] = [self.media(x['path']) for x in work['media']]
+        work['source'] = self.root_uri + '/goods/' + work['uuid']
+        work['actors'] = [y.replace(' ', '') for x in work['actress'] for y in x['name'].strip('/').split('/')]
 
     def media(self, path):
         return f'{self.root_uri}/api/media/{path}'
+
+    def _format_sn(self, sn):
+        for prefix in self.prefixes:
+            if sn.startswith(prefix):
+                return sn[len(prefix):]
+        return sn
+
+
+class SODPrime(OrderedAdultSite, JaActorSite):
+    NO_IMAGE = '/prime/videos/thumbnail/now'
+
+    def __init__(self):
+        super().__init__('https://ec.sod.co.jp/prime/', name='sod', headers={'Referer': 'https://ec.sod.co.jp/prime/'})
+        self.__timestamp = None
+
+    def _do_get(self, path, params=None):
+        current = time.time()
+        if self.__timestamp is None or current - self.__timestamp > 1800:
+            self.__timestamp = current
+            super()._do_get('/prime/_ontime.php')
+        return super()._do_get(path, params)
+
+    def list_actors(self) -> List[dict]:
+        actors = []
+        for kana in ja_syllabary:
+            page, total = 0, 1
+            while page < total:
+                soup = self.get_soup('/prime/videos/actress/keyword.php', params={'kana': kana, 'page': page})
+                for box in soup.select('#actress_searchbox'):
+                    aid = box.select_one('img')['id']
+                    actors.append({
+                        'aid': aid,
+                        'name': format_en_name(box.select_one('p').text.strip()),
+                        'source': self.root_uri + '/prime/videos/genre/?actress[]=' + aid
+                    })
+                page += 1
+                page_list = soup.select('#page_list a')
+                total = int(page_list[-1].text.strip()) if len(page_list) > 0 else 0
+        return actors
+
+    def list_works_between(self, start: date, stop: date) -> List[dict]:
+        works, page = [], 0
+        while True:
+            soup = self.get_soup(f'/prime/videos/genre/', params={'sort': 3, 'page': page})
+            for box in soup.select('#videos_s_mainbox'):
+                contents = box.select_one('.videis_s_star p').contents
+                release_date = datetime.strptime(contents[2].text.strip().replace(' ', '')[-11:], '%Y年%m月%d日').date()
+                if release_date >= stop:
+                    continue
+                if release_date < start:
+                    return works
+                wid = box.select_one('a')['href'].split('=')[-1]
+                work = {
+                    'wid': wid,
+                    'serial_number': wid,
+                    'cover': box.select_one('img')['src'],
+                    'release_date': release_date,
+                    'title': box.select_one('h2').text.strip(),
+                    'description': box.select_one('p').text.strip(),
+                    'producer': contents[-2].text.strip()[4:].strip(),
+                    'source': self.root_uri + '/prime/videos/?id=' + wid,
+                }
+                try:
+                    work.update(self.get_work_detail(wid))
+                except NotFound:
+                    pass
+                works.append(work)
+            page += 1
+            if page >= int(soup.select('#page_list a')[-1].text.strip()):
+                return works
+
+    def get_work_detail(self, wid) -> dict:
+        # access the media with 'Referer' header
+        soup = self.get_soup('/prime/videos/', params={'id': wid}, cache=True)
+        head = soup.select_one('#videos_head')
+        if head is None:
+            raise NotFound
+        video_soup = self.get_soup('/prime/videos/sample.php', params={'id': wid}, cache=True)
+        infos = soup.select('#v_introduction tr')
+        if len(infos) == 0:
+            infos = video_soup.select('#v_introduction tr')
+        return {
+            'wid': wid,
+            'title': head.select('h1')[-1].text.strip(),
+            'cover': OptionalValue(head.select_one('.popup-image img')['src']).filter(lambda x: not x.startswith(self.NO_IMAGE)).get(),
+            'cover2': OptionalValue(head.select_one('.popup-image')['href']).filter(lambda x: not x.startswith(self.NO_IMAGE)).get(),
+            'description': head.select_one('article').text.strip(),
+            'images': [x['src'] for x in soup.select('.img-gallery img') if not x['src'].startswith(self.NO_IMAGE)],
+            'serial_number': infos[0].select('td')[-1].text.strip(),
+            'release_date': datetime.strptime(head.select_one('.videos_detail').contents[2].text.strip().replace(' ', '')[-11:], '%Y年%m月%d日').date(),
+            'series': [x.text.strip() for x in infos[2].select('a')],
+            'actors': [x.text.strip() for x in infos[4].select('a')],
+            'duration': OptionalValue(infos[5].select('td')[-1].text.strip()).not_blank().filter(lambda x: x not in ['分', '0分']).get(),
+            'director': [x.text.strip() for x in infos[6].select('a')],
+            'producer': [x.text.strip() for x in infos[7].select('a')],
+            'genres': [x.text.strip() for x in infos[9].select('a')],
+            'trailer': video_soup.select_one('#moviebox source')['src'],
+            'source': self.root_uri + '/prime/videos/?id=' + wid
+        }
+
+    def refactor_work(self, work: dict) -> None:
+        if len(work['producer']) == 0:
+            work['producer'] = None
+        else:
+            work['producer'] = work['producer'][0]
 
 
 class Venus(MonthlyAdultSite):
@@ -458,7 +585,7 @@ class Venus(MonthlyAdultSite):
         super().__init__('https://venus-av.com/', YearMonth(2009, 4), name='venus')
 
     def _list_monthly(self, ym: YearMonth) -> List[dict]:
-        soup = self.get_soup('/products/%04d/%02d/' % (ym.year, ym.month), cache=True)
+        soup = self.get_soup('/products/%04d/%02d/' % (ym.year, ym.month), cache=ym < YearMonth.now())
         return [{'wid': parse.unquote(li.select_one('a')['href'].split('/')[-2])} for li in soup.select('.topNewreleaseList li')]
 
     def get_work_detail(self, wid) -> dict:
@@ -536,7 +663,7 @@ class Indies(MonthlyAdultSite, JaActorSite):
 
     def _list_monthly(self, ym: YearMonth) -> List[dict]:
         indices = []
-        soup = self.get_soup('/ym/%04d%02d/' % (ym.year, ym.month), cache=True)
+        soup = self.get_soup('/ym/%04d%02d/' % (ym.year, ym.month), cache=ym < YearMonth.now())
         for item in reversed(soup.select('ul.d-md-flex li.package')):
             metadata = dict([(x['itemprop'], x['content']) for x in item.select('meta')])
             indices.append({
@@ -557,7 +684,7 @@ class Indies(MonthlyAdultSite, JaActorSite):
         metadata = dict([(x.select('div')[0].text.strip(), x.select_one('.pl-3')) for x in contents[2:]])
         return {
             'wid': wid,
-            'cover2': soup.select_one('[itemprop="image"]')['src'],
+            'cover2': OptionalValue(soup.select_one('[itemprop="image"]')['src']).not_blank().get(),
             'title': re.split('\\n', soup.select_one('h1[itemprop="name"]').text.strip())[-1].strip(),
             'description': soup.select_one('[name="twitter:description"]')['content'].strip(),
             'actors': [x.strip() for x in re.split('[／/、]', metadata.get('女優名').text.strip())],
@@ -566,7 +693,7 @@ class Indies(MonthlyAdultSite, JaActorSite):
             'director': metadata.get('監督').text.strip(),
             'duration': OptionalValue(metadata.get('収録時間').text.strip()).filter(lambda x: x != '分' and x != '0分').get(),
             'release_date': date.fromisoformat(soup.select_one('[itemprop="releaseDate"]')['content']),
-            'genres': OptionalValue(metadata.get('キーワード')).split('[,、]').strip().get(),
+            'genres': [x.text.strip() for x in metadata.get('キーワード').select('a')],
             'trailer': OptionalValue(soup.select_one('video')).map(lambda x: x.select_one('source')['src']).get(),
             'images': [x['href'] for x in soup.select('#gallery a')],
             'source': self.root_uri + f'/title/{wid}/'
@@ -584,7 +711,7 @@ class Planetplus(MonthlyAdultSite):
     def _list_monthly(self, ym: YearMonth) -> List[dict]:
         indices, page = [], 1
         while True:
-            soup = self.get_soup('/wp01/tag/%04d年%02d月/page/%d/' % (ym.year, ym.month, page), cache=True)
+            soup = self.get_soup('/wp01/tag/%04d年%02d月/page/%d/' % (ym.year, ym.month, page), cache=ym < YearMonth.now())
             for article in soup.select('article'):
                 indices.append({
                     'wid': article['id'].split('-')[-1],
@@ -740,7 +867,7 @@ class CrystalEizou(MonthlyAdultSite):
 
     def _list_monthly(self, ym: YearMonth) -> List[dict]:
         path = '/info/archive/%04d_%02d.html' % (ym.year, ym.month)
-        soup = self.get_soup(path, cache=True)
+        soup = self.get_soup(path, cache=ym < YearMonth.now())
         works = []
         for section in reversed(soup.select('.itemSection')):
             infos = section.select('.right2 p')
@@ -773,7 +900,7 @@ class Faleno(AdultSite):
     sn_regexp = re.compile('([a-z]+)-?(\\d{3}[a-z]?)')
 
     def __init__(self):
-        super().__init__('https://faleno.jp/top/', name='faleno')
+        super().__init__('https://faleno.jp/top/', name='FALENO')
 
     def list_works(self) -> List[dict]:
         works, page = [], 1
@@ -795,14 +922,14 @@ class Faleno(AdultSite):
         infos = soup.select('.box_works01_list p')
         return {
             'wid': wid,
-            'title': head.select_one('h1').text.strip(),
+            'title': internet.normalize_str(head.select_one('h1').text.strip()),
             'cover2': head.select_one('img')['src'].split('?')[0],
             'trailer': OptionalValue(head.select_one('.pop_sample')).map(lambda x: x['href']).get(),
             'images': [x['href'] for x in soup.select('.box_works01_ga .pop_img')],
-            'description': soup.select_one('.box_works01_text').text.strip(),
+            'description': internet.normalize_str(soup.select_one('.box_works01_text').text.strip()),
             'actors': re.split('[ /　]', infos[0].text.strip()),
             'duration': OptionalValue(infos[1].text.strip()).not_blank().get(),
-            'release_date': datetime.strptime(OptionalValue(infos[3].text.strip('-')).not_blank().get(infos[2].text.strip()), '%Y/%m/%d').date(),
+            'release_date': datetime.strptime(OptionalValue(infos[-1].text.strip('-')).not_blank().get(infos[-2].text.strip()), '%Y/%m/%d').date(),
             'source': self.root_uri + f'/top/works/{wid}/'
         }
 
@@ -812,36 +939,99 @@ class Faleno(AdultSite):
         work['serial_number'] = (match.group(1) + '-' + match.group(2)).upper()
 
 
-other_producers = [Prestige(), Venus(), Indies(), Planetplus(), Deeps(), Maxing(), CrystalEizou(), Faleno()]
+class KmProduce(MonthlyAdultSite, JaActorSite):
+    def __init__(self):
+        super().__init__('https://www.km-produce.com/', YearMonth(2012, 12), name='km-produce')
+
+    def list_actors(self) -> List[dict]:
+        regexp = re.compile('(\\d{3}cm)/(B\\d{2,3})-([A-Z])?/(W\\d{2})/(H\\d{2,3})')
+        soup = self.get_soup('/girls')
+        actors = []
+        for div in soup.select('.act'):
+            img = div.select_one('img')
+            matcher = regexp.fullmatch(div.select_one('.size').text.strip())
+            actors.append({
+                'name': img['alt'],
+                'image': img['src'],
+                'height': matcher.group(1),
+                'measurements': f'{matcher.group(2)}({matcher.group(3) or "-"})/{matcher.group(4)}/{matcher.group(5)}',
+                'source': urljoin(self.root_uri + '/girls', div.select_one('a')['href'])
+            })
+        return actors
+
+    def refactor_actor(self, actor: dict) -> None:
+        super().refactor_actor(actor)
+        actor['height'] = int(actor['height'].rstrip('cm'))
+
+    def _list_monthly(self, ym: YearMonth) -> List[dict]:
+        soup = self.get_soup('/works', {'archive': f'{ym.year}年{ym.month}月'}, cache=ym < YearMonth.now())
+        works = []
+        for article in soup.select('article.post'):
+            img = article.select_one('img')
+            href = article.select_one('h3 a')['href']
+            if href.startswith('goods'):
+                continue
+            works.append({
+                'wid': href.strip('/').split('/')[-1],
+                'title': img['alt'],
+                'cover': self.root_uri + img['src']
+            })
+        return works
+
+    def get_work_detail(self, wid) -> dict:
+        soup = self.get_soup(f'/works/{wid}', cache=True)
+        article = soup.select_one('#single')
+        infos = dict((x.text.strip(), x.find_next_sibling('dd')) for x in article.select('.information dt'))
+        return {
+            'wid': wid,
+            'title': article.select_one('h1').text.strip(),
+            'cover2': self.root_uri + article.select_one('#fulljk img')['src'],
+            'description': article.select_one('p.intro').text.strip(),
+            'actors': [x.text.strip() for x in infos.get('出演女優').select('a')],
+            'director': [x.text.strip() for x in infos.get('監督').select('a')],
+            'genres': [x.text.strip() for x in infos.get('ジャンル').select('a')],
+            'release_date': OptionalValue(infos.get('発売日').text.strip()).not_value("発売日未定").map(lambda x: datetime.strptime(x, '%Y/%m/%d').date()).get(),
+            'serial_number': infos.get('品番').text.strip(),
+            'duration': OptionalValue(infos.get('収録時間').text.strip().replace(' ', '')).not_blank().get(),
+            'source': self.root_uri + f'/works/{wid}'
+        }
+
+    def refactor_work(self, work: dict) -> None:
+        super().refactor_work(work)
+        work['producer'] = self.name
 
 
-def persist_producer(site: AdultSite, dirpath, export_api=export.kingen_web):
+other_producers = [Prestige(), SODPrime(), Venus(), Indies(), Planetplus(), Deeps(), Maxing(), CrystalEizou(), Faleno(), KmProduce()]
+
+
+def persist_producer(site: AdultSite, dirpath, export_api):
     log.info('Start persisting actors and works of %s', site.name)
     if dirpath is None:
         dirpath = os.path.dirname(os.path.join(__file__))
     site_name = site.name
 
     actor_path = os.path.join(dirpath, 'actor', site_name + '.json')
-    export_actor = export_api.import_actor if export_api else None
     if isinstance(site, ActorSite):
-        export.import_data(actor_path, site.list_actors, site.refactor_actor, export_actor)
+        export.import_data(actor_path, site.list_actors, site.refactor_actor)
+        export.export_data(actor_path, export_api.import_actor)
 
     work_path = os.path.join(dirpath, 'work', site_name + '.json')
-    export_work = export_api.import_work if export_api else None
     if isinstance(site, OrderedAdultSite):
-        export.import_ordered_works(work_path, site, export_work)
+        export.import_ordered_works(work_path, site)
     elif isinstance(site, MonthlyAdultSite):
-        export.import_monthly_works(work_path, site, export_work)
+        export.import_monthly_works(work_path, site)
     else:
-        export.import_data(work_path, site.list_works, site.refactor_work, export_work)
+        export.import_data(work_path, site.list_works, site.refactor_work)
+    export.export_data(work_path, export_api.import_work)
 
 
 if __name__ == '__main__':
+    kingen_api = export.KingenWeb()
     for producer in will_producers:
-        persist_producer(producer, 'tmp/will')
+        persist_producer(producer, 'tmp/will', kingen_api)
 
     for producer in d2pass_producers:
-        persist_producer(producer, 'tmp/d2pass')
+        persist_producer(producer, 'tmp/d2pass', kingen_api)
 
     for producer in other_producers:
-        persist_producer(producer, 'tmp/other')
+        persist_producer(producer, 'tmp/other', kingen_api)

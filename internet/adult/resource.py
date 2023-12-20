@@ -44,25 +44,27 @@ class HuiAV(AdultSite, ActorSite):
             'source': self.root_uri + f'/{ul.select_one("li.eye")["vid"]}/'
         } for ul in soup.select_one('.actor_box').select('ul')]
 
-    def list_works(self) -> List[dict]:
+    def list_works(self, detailed=False) -> List[dict]:
         works = []
-        for k, censored in [(1, True), (2, False)]:
-            for idx in self.__list_records_by_page(lambda x: self.__parse_work_indices(f'/home/{k}_{x}.html')):
-                try:
-                    work = self.get_work_detail(idx['wid'])
-                except NotFound:
-                    work = self.get_work_detail(idx['wid'], retry=True)
-                works.append({**idx, **work, 'censored': censored})
+        for k in [1, 2]:
+            for work in self.__list_records_by_page(lambda x: self.__parse_work_indices(f'/home/{k}_{x}.html')):
+                if detailed:
+                    try:
+                        work.update(self.get_work_detail(work['wid']))
+                    except NotFound:
+                        work.update(self.get_work_detail(work['wid'], retry=True))
+                works.append(work)
         return works
 
     def __parse_work_indices(self, path) -> Tuple[int, List[dict]]:
-        soup = self.get_soup(path, cache=True)
+        soup = self.get_soup(path)
         actor_box = soup.select_one('.actor_box')
         if actor_box is None:
             return 0, []
         total = int(actor_box.select_one('h1 span').text.strip()[:-3])
         return total, [{
             'wid': ul.select_one('li.eye')['vid'],
+            'serial_number': ul.select_one('a')['title'],
             'cover2': ul.select_one('img')['img'].replace(".jpgf.jpg", ".jpg"),
             'src_count': int(ul.select_one('span[type=total]').text.strip()),
             'view': int(ul.select_one('span[type=view]').text.strip()),
@@ -97,14 +99,13 @@ class HuiAV(AdultSite, ActorSite):
             'actors': actors,
             'online_links': online_links,
             'magnet_links': magnet_links,
-            'source': self.root_uri + f'/{wid}/'
         }
 
     def refactor_work(self, work: dict):
         work['serial_number'] = work['serial_number'].upper()
-        work['genres'] = ['censored' if work.get('censored', True) else 'uncensored']
-        work['actors'] = [x['name'] for x in work['actors']]
-        work['resources'] = work['online_links'] + work['magnet_links']
+        work['actors'] = [x['name'] for x in work.get('actors', [])]
+        root_resource = {'title': work['serial_number'] + ' - ' + self.name, 'url': self.root_uri + f'/{work["wid"]}/'}
+        work['resources'] = [root_resource] + work.get('online_links', []) + work.get('magnet_links', [])
 
     def __parse_filesize(self, intro):
         matcher = self.intro_regexp.fullmatch(intro)
@@ -130,26 +131,9 @@ class HuiAV(AdultSite, ActorSite):
         return records
 
 
-def export_work(work: dict):
-    result = export.kingen_web.import_work(work)
-    if result['code'] == 1042:
-        fields = [x['field'] for x in result['conflicts']]
-        if 'cover' in fields:
-            work.pop('cover')
-        if 'cover2' in fields:
-            work.pop('cover2')
-        result = export.kingen_web.import_work(work)
-    if result['code'] == 1043:
-        result['code'] = 0
-    return result
-
-
-def persist_resources(site: HuiAV, dirpath):
-    log.info('Start persisting actors and works of %s', site.name)
-    export.import_data(os.path.join(dirpath, 'actor', site.name + '.json'), site.list_actors, site.refactor_actor, export.kingen_web.import_actor)
-
-    export.import_data(os.path.join(dirpath, 'work', site.name + '.json'), site.list_works, site.refactor_work, export_work)
-
-
 if __name__ == '__main__':
-    persist_resources(HuiAV(), 'tmp/huiav')
+    site = HuiAV()
+    data_file = os.path.join('tmp', site.name + '.json')
+    export.import_data(data_file, site.list_works, site.refactor_work)
+    api = export.KingenWeb()
+    export.export_data(data_file, lambda w: api.import_resources(w['serial_number'], w['resources']))
