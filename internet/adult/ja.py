@@ -5,9 +5,9 @@ Japanese adult producers.
 
 @Author Kingen
 """
+import argparse
 import os
 import re
-import sys
 import time
 from abc import ABC
 from collections import OrderedDict
@@ -1008,28 +1008,38 @@ other_producers = [Prestige(), SODPrime(), Venus(), Indies(), Planetplus(), Deep
 def persist_producer(site: AdultSite, data_dir, export_api):
     log.info('Start persisting actors and works of %s', site.name)
 
-    actor_path = os.path.join(data_dir, 'actor', site.name + '.json')
-    if isinstance(site, ActorSite):
-        export.import_data(actor_path, site.list_actors, site.refactor_actor)
-        export.export_data(actor_path, export_api.import_actor)
+    try:
+        actor_path = os.path.join(data_dir, 'actor', site.name + '.json')
+        if isinstance(site, ActorSite):
+            export.import_data(actor_path, site.list_actors, site.refactor_actor)
+            export.export_data(actor_path, export_api.import_actor)
 
-    work_path = os.path.join(data_dir, 'work', site.name + '.json')
-    if isinstance(site, OrderedAdultSite):
-        export.import_ordered_works(work_path, site)
-    elif isinstance(site, MonthlyAdultSite):
-        export.import_monthly_works(work_path, site)
-    else:
-        export.import_data(work_path, site.list_works, site.refactor_work)
-    export.export_data(work_path, export_api.import_work)
+        work_path = os.path.join(data_dir, 'work', site.name + '.json')
+        if isinstance(site, OrderedAdultSite):
+            export.import_ordered_works(work_path, site)
+        elif isinstance(site, MonthlyAdultSite):
+            export.import_monthly_works(work_path, site)
+        else:
+            export.import_data(work_path, site.list_works, site.refactor_work)
+        export.export_data(work_path, export_api.import_work)
+        log.info('Successfully persist actors and works of %s', site.name)
+    except Exception as ex:
+        log.error('Fail to persist actors and works of %s: %s', site.name, ex)
+
+
+def read_kwargs() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('-h', '--host', default='127.0.0.1', help='specify the host name or IP address')
+    parser.add_argument('-p', '--port', type=int, default=12301, help='specify the port number')
+    parser.add_argument('-d', '--data-dir', default='data', help='specify the directory of data')
+    parser.add_argument('--help', action='help')
+    return parser.parse_args()
 
 
 if __name__ == '__main__':
-    args = sys.argv
-    if len(args) < 2:
-        kingen_api = export.KingenWeb('http://127.0.0.1:12301')
-    else:
-        kingen_api = export.KingenWeb(args[1])
-    dirpath = os.path.join(os.path.dirname(os.path.join(__file__)), 'data') if len(args) < 3 else args[2]
+    args = read_kwargs()
+    kingen_api = export.KingenWeb(f'http://{args.host}:{args.port}')
+    dirpath = os.path.normpath(os.path.join(os.path.dirname(os.path.join(__file__)), args.data_dir))
     if not os.path.isdir(dirpath):
         log.info('create directory: ' + dirpath)
         os.makedirs(dirpath, exist_ok=True)

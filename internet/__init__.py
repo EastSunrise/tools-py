@@ -77,18 +77,18 @@ class BaseSite:
 
     def _do_get(self, path, params: dict = None):
         if params and len(params) > 0:
-            log.info('Getting for %s%s?%s', self.root_uri, path, '&'.join(k + '=' + str(v) for k, v in params.items()))
+            log.debug('Getting for %s%s?%s', self.root_uri, path, '&'.join(k + '=' + str(v) for k, v in params.items()))
         else:
-            log.info('Getting for %s%s', self.root_uri, path)
+            log.debug('Getting for %s%s', self.root_uri, path)
         response = self.__session.get(self.root_uri + path, params=params, headers=self.__headers)
         response.raise_for_status()
         return response.content.decode(self.__encoding, errors='ignore')
 
     def _do_post(self, path, query_params: dict = None, data=None, json_data=None):
         if query_params and len(query_params) > 0:
-            log.info('Posting for %s%s?%s', self.root_uri, path, '&'.join(k + '=' + str(v) for k, v in query_params.items()))
+            log.debug('Posting for %s%s?%s', self.root_uri, path, '&'.join(k + '=' + str(v) for k, v in query_params.items()))
         else:
-            log.info('Posting for %s%s', self.root_uri, path)
+            log.debug('Posting for %s%s', self.root_uri, path)
         response = self.__session.post(self.root_uri + path, params=query_params, headers=self.__headers, data=data, json=json_data)
         return response.content.decode(self.__encoding, errors='ignore')
 
@@ -109,21 +109,21 @@ def run_cacheable(filepath, do_func, op='cache'):
     filepath = filepath.rstrip('/') + '.pkl'
 
     if op == 'cache' and os.path.exists(filepath):
-        log.info(f'reading cache from {filepath}')
+        log.debug(f'reading cache from {filepath}')
         with open(filepath, 'rb') as fp:
             return pickle.load(fp)
 
     if (op == 'cache' and not os.path.exists(filepath)) or op == 'put':
         data = do_func()
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
-        log.info(f'writing cache to {filepath}')
+        log.debug(f'writing cache to {filepath}')
         with open(filepath, 'wb') as fp:
             pickle.dump(data, fp)
         return data
 
     if op == 'evict':
         if os.path.exists(filepath):
-            log.info(f'removing cache from {filepath}')
+            log.debug(f'removing cache from {filepath}')
             os.remove(filepath)
         return do_func()
 

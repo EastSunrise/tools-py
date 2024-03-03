@@ -6,10 +6,41 @@ Common functions.
 @Author Kingen
 """
 import logging
+import os.path
 import re
 from datetime import date, datetime
 from json import JSONEncoder
 from typing import Iterable, Callable, Dict, Any, List
+
+formatter = logging.Formatter(fmt='%(asctime)s %(levelname)s %(threadName)s [%(filename)s:%(lineno)d]: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(formatter)
+
+
+def create_logger(name: str, level=logging.DEBUG, console=True, file_dir='logs'):
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    if console:
+        logger.addHandler(console_handler)
+    if file_dir:
+        if not os.path.isdir(file_dir):
+            os.makedirs(file_dir, exist_ok=True)
+        fh_debug = logging.FileHandler(os.path.join(file_dir, 'debug.log'), encoding='UTF-8')
+        fh_debug.setFormatter(formatter)
+        fh_debug.addFilter(lambda r: r.levelno == logging.DEBUG)
+        logger.addHandler(fh_debug)
+
+        fh_info = logging.FileHandler(os.path.join(file_dir, 'info.log'), encoding='UTF-8')
+        fh_info.setFormatter(formatter)
+        fh_info.addFilter(lambda r: r.levelno == logging.INFO)
+        logger.addHandler(fh_info)
+
+        fh_warn = logging.FileHandler(os.path.join(file_dir, 'warning.log'), encoding='UTF-8')
+        fh_warn.setFormatter(formatter)
+        fh_warn.setLevel(logging.WARNING)
+        logger.addHandler(fh_warn)
+    return logger
 
 
 def group_by(it: Iterable, key_func: Callable, value_func=lambda x: x) -> Dict[Any, List[Any]]:
@@ -21,21 +52,6 @@ def group_by(it: Iterable, key_func: Callable, value_func=lambda x: x) -> Dict[A
         else:
             res[key] = [value_func(x)]
     return res
-
-
-def create_logger(name: str, level=logging.INFO, console=True, file_path=None):
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-    fmt = logging.Formatter(fmt='%(asctime)s %(levelname)s %(threadName)s [%(filename)s:%(lineno)d]: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-    if console:
-        sh = logging.StreamHandler()
-        sh.setFormatter(fmt)
-        logger.addHandler(sh)
-    if file_path:
-        fh = logging.FileHandler(file_path, encoding='UTF-8')
-        fh.setFormatter(fmt)
-        logger.addHandler(fh)
-    return logger
 
 
 class OptionalValue:

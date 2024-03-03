@@ -1,3 +1,3 @@
 #!/bin/bash
 
-pyinstaller --name export-ja ja.py
+pyinstaller -n export-ja --contents-directory . ja.py
