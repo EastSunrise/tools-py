@@ -131,9 +131,18 @@ class HuiAV(AdultSite, ActorSite):
         return records
 
 
+api = export.KingenWeb()
+
+
+def export_resources(work):
+    result = api.import_resources(work['serial_number'], work['resources'])
+    if result['code'] == 0:
+        result['updated'] = result['data'] > 0
+    return result
+
+
 if __name__ == '__main__':
     site = HuiAV()
     data_file = os.path.join('tmp', site.name + '.json')
     export.import_data(data_file, site.list_works, site.refactor_work)
-    api = export.KingenWeb()
-    export.export_data(data_file, lambda w: api.import_resources(w['serial_number'], w['resources']))
+    export.export_data(data_file, export_resources)

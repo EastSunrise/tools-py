@@ -7,6 +7,7 @@ Japanese adult producers.
 """
 import os
 import re
+import sys
 import time
 from abc import ABC
 from collections import OrderedDict
@@ -291,7 +292,7 @@ class Caribbean(OrderedAdultSite, JaActorSite):
             'release_date': datetime.strptime(info.select_one('[itemprop="datePublished"]').text.strip(), '%Y/%m/%d').date(),
             'duration': duration_op.map(lambda x: x.replace(' ', '').replace('：', ":").replace(';', ':')).get(),
             'genres': [x.text.strip() for x in info.select('.spec-item')],
-            'images': [self.root_uri + x['src'].replace('/s/', '/l') for x in gallery.select('.gallery-image')] if gallery else None,
+            'images': [self.root_uri + x['src'].replace('/s/', '/l/') for x in gallery.select('.gallery-image')] if gallery else None,
             'source': self.root_uri + f'/moviepages/{wid}/index.html'
         }
 
@@ -1001,21 +1002,18 @@ class KmProduce(MonthlyAdultSite, JaActorSite):
         work['producer'] = self.name
 
 
-other_producers = [Prestige(), SODPrime(), Venus(), Indies(), Planetplus(), Deeps(), Maxing(), CrystalEizou(), Faleno(), KmProduce()]
+other_producers = [Prestige(), SODPrime(), Venus(), Indies(), Planetplus(), Deeps(), Maxing(), CrystalEizou(), KmProduce()]
 
 
-def persist_producer(site: AdultSite, dirpath, export_api):
+def persist_producer(site: AdultSite, data_dir, export_api):
     log.info('Start persisting actors and works of %s', site.name)
-    if dirpath is None:
-        dirpath = os.path.dirname(os.path.join(__file__))
-    site_name = site.name
 
-    actor_path = os.path.join(dirpath, 'actor', site_name + '.json')
+    actor_path = os.path.join(data_dir, 'actor', site.name + '.json')
     if isinstance(site, ActorSite):
         export.import_data(actor_path, site.list_actors, site.refactor_actor)
         export.export_data(actor_path, export_api.import_actor)
 
-    work_path = os.path.join(dirpath, 'work', site_name + '.json')
+    work_path = os.path.join(data_dir, 'work', site.name + '.json')
     if isinstance(site, OrderedAdultSite):
         export.import_ordered_works(work_path, site)
     elif isinstance(site, MonthlyAdultSite):
@@ -1026,12 +1024,21 @@ def persist_producer(site: AdultSite, dirpath, export_api):
 
 
 if __name__ == '__main__':
-    kingen_api = export.KingenWeb()
+    args = sys.argv
+    if len(args) < 2:
+        kingen_api = export.KingenWeb('http://127.0.0.1:12301')
+    else:
+        kingen_api = export.KingenWeb(args[1])
+    dirpath = os.path.join(os.path.dirname(os.path.join(__file__)), 'data') if len(args) < 3 else args[2]
+    if not os.path.isdir(dirpath):
+        log.info('create directory: ' + dirpath)
+        os.makedirs(dirpath, exist_ok=True)
+
     for producer in will_producers:
-        persist_producer(producer, 'tmp/will', kingen_api)
+        persist_producer(producer, dirpath, kingen_api)
 
     for producer in d2pass_producers:
-        persist_producer(producer, 'tmp/d2pass', kingen_api)
+        persist_producer(producer, dirpath, kingen_api)
 
     for producer in other_producers:
-        persist_producer(producer, 'tmp/other', kingen_api)
+        persist_producer(producer, dirpath, kingen_api)
