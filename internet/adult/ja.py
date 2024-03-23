@@ -24,6 +24,7 @@ from scrapy.exceptions import NotSupported
 from urllib3.util import parse_url
 from werkzeug.exceptions import NotFound, BadGateway
 
+import common
 import internet
 from common import OptionalValue, create_logger, YearMonth
 from internet import normalize_str
@@ -1031,24 +1032,28 @@ def read_kwargs() -> argparse.Namespace:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument('-h', '--host', default='127.0.0.1', help='specify the host name or IP address')
     parser.add_argument('-p', '--port', type=int, default=12301, help='specify the port number')
-    parser.add_argument('-d', '--data-dir', default='data', help='specify the directory of data')
+    parser.add_argument('-d', '--data-dir', default='', help='specify the directory of data')
+    parser.add_argument('-l', '--log-level', default='info', help='specify the log level of console')
     parser.add_argument('--help', action='help')
     return parser.parse_args()
 
 
 if __name__ == '__main__':
     args = read_kwargs()
+    common.console_handler.setLevel(args.log_level.upper())
     kingen_api = export.KingenWeb(f'http://{args.host}:{args.port}')
-    dirpath = os.path.normpath(os.path.join(os.path.dirname(os.path.join(__file__)), args.data_dir))
+    dirpath = args.data_dir
+    if dirpath is None or dirpath.strip() == '':
+        dirpath = os.path.join(os.getenv('TEMP'), 'export-ja')
     if not os.path.isdir(dirpath):
         log.info('create directory: ' + dirpath)
         os.makedirs(dirpath, exist_ok=True)
-
-    for producer in will_producers:
-        persist_producer(producer, dirpath, kingen_api)
 
     for producer in d2pass_producers:
         persist_producer(producer, dirpath, kingen_api)
 
     for producer in other_producers:
+        persist_producer(producer, dirpath, kingen_api)
+
+    for producer in will_producers:
         persist_producer(producer, dirpath, kingen_api)

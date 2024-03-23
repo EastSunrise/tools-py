@@ -94,6 +94,8 @@ def import_data(filepath, list_func, refactor_func, interval=timedelta(days=14))
 
     if datetime.now() - update_at >= interval:
         data = [x.copy() for x in list_func()]
+        if len(data) == 0:
+            return
         for datum in data:
             refactor_func(datum)
         records = [{
@@ -105,7 +107,7 @@ def import_data(filepath, list_func, refactor_func, interval=timedelta(days=14))
             json.dump(records, fp, ensure_ascii=False, cls=ComplexEncoder)
 
 
-def import_ordered_works(filepath, site: OrderedAdultSite, interval=timedelta(days=7)) -> None:
+def import_ordered_works(filepath, site: OrderedAdultSite, interval=timedelta(days=1)) -> None:
     """
     Imports in-order works of the given site to destination json file.
     """
@@ -118,6 +120,8 @@ def import_ordered_works(filepath, site: OrderedAdultSite, interval=timedelta(da
 
     if stop - start >= interval:
         works = [x.copy() for x in site.list_works_between(start, stop)]
+        if len(works) == 0:
+            return
         for work in works:
             site.refactor_work(work)
         records.append({
@@ -144,6 +148,8 @@ def import_monthly_works(filepath, site: MonthlyAdultSite) -> None:
 
     if start < stop:
         works = [x.copy() for x in site.list_works_between(start, stop)]
+        if len(works) == 0:
+            return
         for work in works:
             site.refactor_work(work)
         records.append({
