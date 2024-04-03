@@ -23,13 +23,13 @@ class KingenWeb(BaseSite):
         super().__init__(home, 'kingen-web')
 
     def import_actor(self, actor: dict):
-        return self.post_json('/study/actor/import', params=self.format_json(actor))
+        return self.post_json('/study/actor/import', json_data=self.format_json(actor))
 
     def import_work(self, work: dict):
-        return self.post_json('/study/work/import', params=self.format_json(work))
+        return self.post_json('/study/work/import', json_data=self.format_json(work))
 
     def import_resources(self, sn: str, resources: List[dict]):
-        return self.post_json(f'/study/work/{sn}/resource/import', params=resources)
+        return self.post_json(f'/study/work/{sn}/resource/import', json_data=resources)
 
 
 def export_data(data_file, export_func):

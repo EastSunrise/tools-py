@@ -31,7 +31,7 @@ class BaseSite:
         self.__hostname = url.hostname
         self.__name = name or self.__hostname
         self.__root_uri = '%s://%s' % (url.scheme, url.netloc)
-        self.__headers = headers or base_headers
+        self.__headers = {**base_headers, 'Host': url.hostname, **(headers or {})}
         self.__encoding = encoding
         self.__cache_dir = cache_dir or os.path.join(os.getenv('TEMP'), self.__hostname)
         self.__session = requests.session()
@@ -63,10 +63,10 @@ class BaseSite:
             return None
         return json.loads(json.dumps(data, ensure_ascii=False, cls=common.ComplexEncoder))
 
-    def post_json(self, path, params=None):
-        return json.loads(self._do_post(path, json_data=params))
+    def post_json(self, path, query=None, data=None, json_data=None, cache=False, retry=False):
+        return json.loads(self._do_post_cacheable(path, query, data, json_data, cache, retry))
 
-    def _do_get_cacheable(self, path, params: dict = None, cache=False, retry=False):
+    def _do_get_cacheable(self, path, params=None, cache=False, retry=False):
         if cache:
             op = 'cache' if not retry else 'put'
             filepath = self.cache_dir + path
@@ -75,7 +75,7 @@ class BaseSite:
             return run_cacheable(filepath, lambda: self._do_get(path, params), op)
         return self._do_get(path, params)
 
-    def _do_get(self, path, params: dict = None):
+    def _do_get(self, path, params=None):
         if params and len(params) > 0:
             log.debug('Getting for %s%s?%s', self.root_uri, path, '&'.join(k + '=' + str(v) for k, v in params.items()))
         else:
@@ -84,12 +84,22 @@ class BaseSite:
         response.raise_for_status()
         return response.content.decode(self.__encoding, errors='ignore')
 
-    def _do_post(self, path, query_params: dict = None, data=None, json_data=None):
-        if query_params and len(query_params) > 0:
-            log.debug('Posting for %s%s?%s', self.root_uri, path, '&'.join(k + '=' + str(v) for k, v in query_params.items()))
+    def _do_post_cacheable(self, path, query=None, data=None, json_data=None, cache=False, retry=False):
+        if cache:
+            op = 'cache' if not retry else 'put'
+            filepath = self.cache_dir + path
+            if query:
+                filepath += '?' + urlencode(query)
+            return run_cacheable(filepath, lambda: self._do_post(path, query, data, json_data), op)
+        return self._do_post(path, query, data, json_data)
+
+    def _do_post(self, path, query=None, data=None, json_data=None):
+        if query and len(query) > 0:
+            log.debug('Posting for %s%s?%s', self.root_uri, path, '&'.join(k + '=' + str(v) for k, v in query.items()))
         else:
             log.debug('Posting for %s%s', self.root_uri, path)
-        response = self.__session.post(self.root_uri + path, params=query_params, headers=self.__headers, data=data, json=json_data)
+        response = self.__session.post(self.root_uri + path, params=query, headers=self.__headers, data=data,
+                                       json=json_data)
         return response.content.decode(self.__encoding, errors='ignore')
 
 
