@@ -54,10 +54,13 @@ class LeetCode(BaseSite):
         while skip < total:
             variables = {"categorySlug": "all-code-essentials", "skip": skip, "limit": limit, "filters": {}}
             params = {"query": query, "variables": variables}
-            result = self.post_json('/graphql/', json_data=params, cache=skip + limit < total)['problemsetQuestionList']
-            questions.extend(result['questions'])
+            page = {'skip': skip, 'limit': limit}
+            result = self.post_json('/graphql/', query=page, json_data=params, cache=skip + limit < total)
+            data = result['data']['problemsetQuestionList']
+            questions.extend(data['questions'])
             skip += limit
-            total = result['total']
+            total = data['total']
+        return questions
 
     def get_problem_detail(self, slug: str):
         query = """
@@ -99,4 +102,4 @@ class LeetCode(BaseSite):
         """
         variables = {"titleSlug": slug}
         params = {"query": query, "variables": variables}
-        return self.post_json('/graphql/', json_data=params, cache=True)['data']['question']
+        return self.post_json('/graphql/', query=variables, json_data=params, cache=True)['data']['question']
