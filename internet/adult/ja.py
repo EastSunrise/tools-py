@@ -25,7 +25,7 @@ from werkzeug.exceptions import NotFound, BadGateway
 
 import common
 from common import OptionalValue, create_logger, YearMonth
-from internet import normalize_str
+from internet import normalize_str, DuplicateError
 from internet.adult import ActorSite, AdultSite, OrderedAdultSite, MonthlyAdultSite, export
 
 log = create_logger(__name__)
@@ -142,11 +142,11 @@ class BaseWillProducer(OrderedAdultSite):
             'images': [x.get('data-src', x.get('src')) for x in images],
             'title': work_page.select_one('h2').text.strip(),
             'description': work_page.select_one('.p-workPage__text').text.strip(),
-            'actors': OptionalValue(info.get('女優')).map(lambda v: [x.text.strip() for x in info.get('女優').select('.item')]).get(),
+            'actors': OptionalValue(info.get('女優')).map(lambda v: [normalize_str(x.text.strip()) for x in v.select('.item')]).get(),
             'release_date': date.fromisoformat(info.pop('発売日').select_one('a')['href'].strip('/').split('/')[-1]),
             'series': [x.text.strip() for x in info.get('シリーズ').select('.item')],
             'genres': [x.text.strip() for x in info.get('ジャンル').select('.item')],
-            'director': [x.text.strip() for x in info.get('監督').select('.item')],
+            'director': [y for y in [x.text.strip() for x in info.get('監督').select('.item')] if y != '---'],
             'duration': OptionalValue(info.pop('収録時間').select_one('p')).map(lambda x: x.contents[-1].text.strip()).get(),
             'trailer': OptionalValue(work_page.select_one('.p-workPage__side video')).map(lambda x: x['src']).get(),
             'source': self.root_uri + f'/works/detail/{wid}'
@@ -1030,16 +1030,23 @@ class AliceJapan(MonthlyAdultSite, JaActorSite):
                          headers={'Cookie': 'ageverification=t'})
 
     def _list_monthly(self, ym: YearMonth) -> List[dict]:
-        indices = []
-        soup = self.get_soup('/search_item.php', params={'date_word': '%04d%02d' % (ym.year, ym.month)}, cache=ym < YearMonth.now())
-        for item in soup.select('.video-list li'):
-            url = urlparse(urljoin(self.root_uri, item.select_one('a')['href']))
-            indices.append({
-                'wid': parse_qs(url.query).get('item_id')[0],
-                'title': item.select_one('.item-title').text.strip(),
-                'cover': item.select_one('img')['src'],
-                'source': url.geturl()
-            })
+        indices, page = [], 0
+        while True:
+            params = {'date_word': '%04d%02d' % (ym.year, ym.month)}
+            if page > 0:
+                params['p'] = page
+            soup = self.get_soup('/search_item.php', params=params, cache=ym < YearMonth.now())
+            for item in soup.select('.video-list li'):
+                url = urlparse(urljoin(self.root_uri, item.select_one('a')['href']))
+                indices.append({
+                    'wid': parse_qs(url.query).get('item_id')[0],
+                    'title': item.select_one('.item-title').text.strip(),
+                    'cover': item.select_one('img')['src'],
+                    'source': url.geturl()
+                })
+            if soup.select_one('.pager-last a') is None:
+                break
+            page += 1
         return indices
 
     def get_work_detail(self, wid) -> dict:
@@ -1047,15 +1054,19 @@ class AliceJapan(MonthlyAdultSite, JaActorSite):
         jacket = soup.select_one('.item-data-disc-jacket')
         trs = soup.select('.mod-item-data-table tr')
         info = dict([(x.select_one('th').text.strip(), x.select_one('td')) for x in trs])
+        sn = info.get('品番').text.strip()
+        title = soup.select_one('.item-data-title h1').text.strip()
+        if sn.endswith('DC') or sn.endswith('b') or title.startswith('■アウトレット限定商品■'):
+            raise DuplicateError
         return {
             'wid': wid,
-            'title': soup.select_one('.item-data-title h1').text.strip(),
+            'title': title,
+            'serial_number': sn,
             'cover2': jacket.select_one('a.zoom')['href'],
             'actors': [x.text.strip() for x in info.get('女優名').select('a')],
             'director': OptionalValue(info.get('監督名').text.strip()).not_blank().get(),
             'series': OptionalValue(info.get('シリーズ')).map(lambda td: [x.text.strip() for x in td.select('a')]).get(),
             'genres': [x.text.strip() for x in info.get('ジャンル').select('a')],
-            'serial_number': info.get('品番').text.strip(),
             'duration': OptionalValue(info.get('収録時間').text.strip()).not_blank().filter(lambda x: x not in ['分', '0分']).get(),
             'release_date': datetime.strptime(info.get('発売日').text.strip(), '%Y年%m月%d日').date(),
             'images': [x['href'] for x in soup.select('.item-data-image-gallery-body li a')],
@@ -1064,21 +1075,17 @@ class AliceJapan(MonthlyAdultSite, JaActorSite):
 
     def refactor_work(self, work: dict) -> None:
         work['producer'] = self.name
-        work['serial_number'] = work['serial_number'].upper()
 
     def list_actors(self) -> List[dict]:
         actors = []
         for alpha in ja_alphabet:
             soup = self.get_soup(f'/actress_list.php', params={'name_syllabary': alpha})
-            for item in soup.select('.slick-track .carousel-content'):
-                if 'slick-cloned' in item.get('class', ''):
-                    continue
+            for item in soup.select('.actress-list-table-container li'):
                 url = urlparse(urljoin(self.root_uri, item.select_one('a')['href']))
                 aid = parse_qs(url.query).get('actress_id')[0]
                 actors.append({
                     'aid': aid,
-                    'name': item.select_one('img')['alt'],
-                    'image': item.select_one('img')['src'],
+                    'name': item.select_one('a').text.strip(),
                     'source': url.geturl()
                 })
         return actors

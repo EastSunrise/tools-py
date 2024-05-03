@@ -148,3 +148,7 @@ def normalize_str(s: str):
             ch = unicodedata.normalize('NFKC', ch)
         res += ch
     return res
+
+
+class DuplicateError(Exception):
+    pass

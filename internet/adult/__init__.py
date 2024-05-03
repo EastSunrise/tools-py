@@ -13,7 +13,7 @@ from scrapy.exceptions import NotSupported
 from werkzeug.exceptions import HTTPException
 
 from common import YearMonth
-from internet import BaseSite
+from internet import BaseSite, DuplicateError
 
 original_date = date(1900, 1, 1)
 
@@ -72,6 +72,8 @@ class MonthlyAdultSite(AdultSite):
             for work in self._list_monthly(ym):
                 try:
                     work.update(self.get_work_detail(work['wid']))
+                except DuplicateError:
+                    continue
                 except (HTTPException, NotSupported):
                     pass
                 works.append(work)
@@ -93,3 +95,4 @@ class ActorSite:
         Refactors properties of the actor in-place.
         """
         pass
+
