@@ -14,8 +14,7 @@ from collections import OrderedDict
 from datetime import date, datetime, timedelta
 from queue import Queue
 from typing import List
-from urllib import parse
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urlparse, parse_qs, unquote, urljoin
 
 import execjs
 from bs4 import BeautifulSoup
@@ -25,7 +24,6 @@ from urllib3.util import parse_url
 from werkzeug.exceptions import NotFound, BadGateway
 
 import common
-import internet
 from common import OptionalValue, create_logger, YearMonth
 from internet import normalize_str
 from internet.adult import ActorSite, AdultSite, OrderedAdultSite, MonthlyAdultSite, export
@@ -222,6 +220,7 @@ will_producers = [
     WillProducer('https://bi-av.com/top', name='bi-av'),
     WillProducer('https://premium-beauty.com/top', name='premium-beauty'),
     WillProducer('https://miman.jp/top', name='miman'),
+    BaseWillProducer('https://fairway-av.com/top', name='fairway'),
     WillProducer('https://madonna-av.com/top', name='madonna'),
     WillProducer('https://tameikegoro.jp/top', name='tameikegoro'),
     WillProducer('https://fitch-av.com/top', name='fitch'),
@@ -415,11 +414,18 @@ class FalenoProducer(AdultSite):
         self.__prefix = prefix
 
     def list_works(self) -> List[dict]:
-        works, page = [], 1
+        works, page, today = [], 1, date.today()
         while True:
-            soup = self.get_soup(f'{self.__prefix}/work/page/{page}/')
+            soup = self.get_soup(f'{self.__prefix}/work/{"" if page == 1 else f"page/{page}/"}')
             for item in soup.select('.back02 li'):
                 wid = item.select_one('a')['href'].strip('/').split('/')[-1]
+                try:
+                    release_date = datetime.strptime(item.select('.view_timer')[-1]['data-start-date'], '%Y/%m/%d %H:%M').date()
+                    if release_date >= today:
+                        continue
+                except:
+                    log.warn('cannot get release date of %s from %s', wid, self.name)
+                    pass
                 works.append({
                     'cover': item.select_one('img')['src'].split('?')[0],
                     **self.get_work_detail(wid)
@@ -433,11 +439,11 @@ class FalenoProducer(AdultSite):
         infos = soup.select('.box_works01_list p')
         return {
             'wid': wid,
-            'title': internet.normalize_str(soup.select_one('h1').text.strip()),
+            'title': normalize_str(soup.select_one('h1').text.strip()),
             'cover2': soup.select_one('.box_works01_img img')['src'].split('?')[0],
             'trailer': OptionalValue(soup.select_one('.box_works01_img .pop_sample')).map(lambda x: x['href']).get(),
             'images': [x['href'] for x in soup.select('.box_works01_ga .pop_img')],
-            'description': internet.normalize_str(soup.select_one('.box_works01_text').text.strip()),
+            'description': normalize_str(soup.select_one('.box_works01_text').text.strip()),
             'actors': re.split('[ /　]', infos[0].text.strip()),
             'duration': OptionalValue(infos[1].text.strip()).not_blank().get(),
             'release_date': datetime.strptime(
@@ -455,85 +461,6 @@ faleno_producers = [
     FalenoProducer('https://faleno.jp/top/', 'faleno', prefix='/top'),
     FalenoProducer('https://dahlia-av.jp/', 'dahlia')
 ]
-
-
-class Prestige(OrderedAdultSite, JaActorSite):
-    nuxt_regexp = re.compile('window.__NUXT__=(.*);')
-    js_ctx = execjs.compile('')
-    prefixes = ['GOOE', 'PTKT', 'CTKT', 'STKT', 'TKT']
-
-    def __init__(self):
-        super().__init__('https://prestige-av.com', name='prestige', headers={'Cookie': '__age_auth__=true'})
-
-    def list_actors(self) -> List[dict]:
-        return self.get_json('/api/actress')['list']
-
-    def refactor_actor(self, actor: dict) -> None:
-        super().refactor_actor(actor)
-        actor['source'] = self.root_uri + '/goods?actress=' + actor['name']
-        actor['name'] = actor['name'].replace(' ', '')
-        actor['en_name'] = OptionalValue(actor['nameRoma']).not_blank().map(lambda x: format_en_name(x, True)).get()
-        actor['image'] = OptionalValue(actor['media']).map(lambda x: self.media(x['path'])).get()
-
-    def list_works_between(self, start: date, stop: date) -> List[dict]:
-        works = OrderedDict()
-        for release in self.get_json('/api/sku/salesDate', params={'sort': 'desc'}):
-            release_date = date.fromisoformat(release['salesStartAt'])
-            if release_date >= stop:
-                continue
-            if release_date < start:
-                break
-            params = {
-                'isEnabledQuery': 'true',
-                'date[]': release['salesStartAt'],
-                'from': 0, 'size': 100, 'order': 'new'
-            }
-            data = self.get_json('/api/search', params=params, cache=date.today() - release_date >= timedelta(days=7))
-            for doc in data['hits']['hits']:
-                source: dict = doc['_source']
-                source['release_date'] = release_date
-                sn = self._format_sn(source['deliveryItemId'])
-                if sn not in works:
-                    try:
-                        source.update(self.get_work_detail(source['productUuid']))
-                    except NotFound:
-                        continue
-                    works[sn] = source
-        return list(works.values())
-
-    def get_work_detail(self, wid) -> dict:
-        soup = self.get_soup(f'/goods/{wid}', cache=True)
-        js_func = self.nuxt_regexp.fullmatch(soup.select_one('body script').text).group(1)
-        nuxt = self.js_ctx.eval(js_func)
-        for data in nuxt['fetch'].values():
-            if 'product' in data:
-                return data['product']
-        raise NotFound()
-
-    def refactor_work(self, work: dict) -> None:
-        work['serial_number'] = self._format_sn(work['sku'][0]['deliveryItemId'])
-        work['title'] = work['title'].strip()
-        work['cover'] = OptionalValue(work['thumbnail']).map(lambda x: self.media(x['path'])).get()
-        work['cover2'] = OptionalValue(work['packageImage']).map(lambda x: self.media(x['path'])).get()
-        work['duration'] = OptionalValue(work['playTime']).filter(lambda x: x != 0).map(lambda x: x * 60).get()
-        work['director'] = [x['name'].strip() for x in work['directors']]
-        work['producer'] = work['maker']['name']
-        work['series'] = OptionalValue(work['series']).map(lambda x: x['name']).strip().get()
-        work['description'] = OptionalValue(work['body']).strip().not_blank().get()
-        work['genres'] = [x['name'].strip() for x in work['genre']]
-        work['trailer'] = OptionalValue(work['movie']).map(lambda x: self.media(x['path'])).get()
-        work['images'] = [self.media(x['path']) for x in work['media']]
-        work['source'] = self.root_uri + '/goods/' + work['uuid']
-        work['actors'] = [y.replace(' ', '') for x in work['actress'] for y in x['name'].strip('/').split('/')]
-
-    def media(self, path):
-        return f'{self.root_uri}/api/media/{path}'
-
-    def _format_sn(self, sn):
-        for prefix in self.prefixes:
-            if sn.startswith(prefix):
-                return sn[len(prefix):]
-        return sn
 
 
 class SODPrime(OrderedAdultSite, JaActorSite):
@@ -636,13 +563,92 @@ class SODPrime(OrderedAdultSite, JaActorSite):
             work['producer'] = work['producer'][0]
 
 
+class Prestige(OrderedAdultSite, JaActorSite):
+    nuxt_regexp = re.compile('window.__NUXT__=(.*);')
+    js_ctx = execjs.compile('')
+    prefixes = ['GOOE', 'PTKT', 'CTKT', 'STKT', 'TKT']
+
+    def __init__(self):
+        super().__init__('https://prestige-av.com', name='prestige', headers={'Cookie': '__age_auth__=true'})
+
+    def list_actors(self) -> List[dict]:
+        return self.get_json('/api/actress')['list']
+
+    def refactor_actor(self, actor: dict) -> None:
+        super().refactor_actor(actor)
+        actor['source'] = self.root_uri + '/goods?actress=' + actor['name']
+        actor['name'] = actor['name'].replace(' ', '')
+        actor['en_name'] = OptionalValue(actor['nameRoma']).not_blank().map(lambda x: format_en_name(x, True)).get()
+        actor['image'] = OptionalValue(actor['media']).map(lambda x: self.media(x['path'])).get()
+
+    def list_works_between(self, start: date, stop: date) -> List[dict]:
+        works = OrderedDict()
+        for release in self.get_json('/api/sku/salesDate', params={'sort': 'desc'}):
+            release_date = date.fromisoformat(release['salesStartAt'])
+            if release_date >= stop:
+                continue
+            if release_date < start:
+                break
+            params = {
+                'isEnabledQuery': 'true',
+                'date[]': release['salesStartAt'],
+                'from': 0, 'size': 100, 'order': 'new'
+            }
+            data = self.get_json('/api/search', params=params, cache=date.today() - release_date >= timedelta(days=7))
+            for doc in data['hits']['hits']:
+                source: dict = doc['_source']
+                source['release_date'] = release_date
+                sn = self._format_sn(source['deliveryItemId'])
+                if sn not in works:
+                    try:
+                        source.update(self.get_work_detail(source['productUuid']))
+                    except NotFound:
+                        continue
+                    works[sn] = source
+        return list(works.values())
+
+    def get_work_detail(self, wid) -> dict:
+        soup = self.get_soup(f'/goods/{wid}', cache=True)
+        js_func = self.nuxt_regexp.fullmatch(soup.select_one('body script').text).group(1)
+        nuxt = self.js_ctx.eval(js_func)
+        for data in nuxt['fetch'].values():
+            if 'product' in data:
+                return data['product']
+        raise NotFound()
+
+    def refactor_work(self, work: dict) -> None:
+        work['serial_number'] = self._format_sn(work['sku'][0]['deliveryItemId'])
+        work['title'] = work['title'].strip()
+        work['cover'] = OptionalValue(work['thumbnail']).map(lambda x: self.media(x['path'])).get()
+        work['cover2'] = OptionalValue(work['packageImage']).map(lambda x: self.media(x['path'])).get()
+        work['duration'] = OptionalValue(work['playTime']).filter(lambda x: x != 0).map(lambda x: x * 60).get()
+        work['director'] = [x['name'].strip() for x in work['directors']]
+        work['producer'] = work['maker']['name']
+        work['series'] = OptionalValue(work['series']).map(lambda x: x['name']).strip().get()
+        work['description'] = OptionalValue(work['body']).strip().not_blank().get()
+        work['genres'] = [x['name'].strip() for x in work['genre']]
+        work['trailer'] = OptionalValue(work['movie']).map(lambda x: self.media(x['path'])).get()
+        work['images'] = [self.media(x['path']) for x in work['media']]
+        work['source'] = self.root_uri + '/goods/' + work['uuid']
+        work['actors'] = [y.replace(' ', '') for x in work['actress'] for y in x['name'].strip('/').split('/')]
+
+    def media(self, path):
+        return f'{self.root_uri}/api/media/{path}'
+
+    def _format_sn(self, sn):
+        for prefix in self.prefixes:
+            if sn.startswith(prefix):
+                return sn[len(prefix):]
+        return sn
+
+
 class Venus(MonthlyAdultSite):
     def __init__(self):
         super().__init__('https://venus-av.com/', YearMonth(2009, 4), name='venus')
 
     def _list_monthly(self, ym: YearMonth) -> List[dict]:
         soup = self.get_soup('/products/%04d/%02d/' % (ym.year, ym.month), cache=ym < YearMonth.now())
-        return [{'wid': parse.unquote(li.select_one('a')['href'].split('/')[-2])} for li in soup.select('.topNewreleaseList li')]
+        return [{'wid': unquote(li.select_one('a')['href'].split('/')[-2])} for li in soup.select('.topNewreleaseList li')]
 
     def get_work_detail(self, wid) -> dict:
         soup = self.get_soup(f'/products/{wid}/', cache=True)
@@ -934,9 +940,9 @@ class CrystalEizou(MonthlyAdultSite):
             wid = re.search('品番：/?([A-Z\\d]+[-－]\\d+)', info).group(1).replace('－', '-')
             works.append({
                 'wid': wid,
-                'cover': self.root_uri + parse.urljoin('/info/archive/index.html', section.select_one('img')['src']),
+                'cover': self.root_uri + urljoin('/info/archive/index.html', section.select_one('img')['src']),
                 'cover2': OptionalValue(section.select_one('.zoomImg')).map(
-                    lambda x: self.root_uri + parse.urljoin('/info/archive/index.html', x['href'])).get(),
+                    lambda x: self.root_uri + urljoin('/info/archive/index.html', x['href'])).get(),
                 'title': infos[0].text.strip(),
                 'release_date': datetime.strptime(re.search('発売日：(\\d+/\\d+/\\d+)', info).group(1), '%Y/%m/%d').date(),
                 'serial_number': wid,
@@ -1014,11 +1020,72 @@ class KmProduce(MonthlyAdultSite, JaActorSite):
         }
 
     def refactor_work(self, work: dict) -> None:
-        super().refactor_work(work)
         work['producer'] = self.name
 
 
-individual_producers = [Prestige(), SODPrime(), Venus(), Indies(), Planetplus(), Deeps(), Maxing(), CrystalEizou(), KmProduce()]
+class AliceJapan(MonthlyAdultSite, JaActorSite):
+
+    def __init__(self):
+        super().__init__('https://www.alicejapan.co.jp/top.php', YearMonth(1984, 5), name='alice-japan',
+                         headers={'Cookie': 'ageverification=t'})
+
+    def _list_monthly(self, ym: YearMonth) -> List[dict]:
+        indices = []
+        soup = self.get_soup('/search_item.php', params={'date_word': '%04d%02d' % (ym.year, ym.month)}, cache=ym < YearMonth.now())
+        for item in soup.select('.video-list li'):
+            url = urlparse(urljoin(self.root_uri, item.select_one('a')['href']))
+            indices.append({
+                'wid': parse_qs(url.query).get('item_id')[0],
+                'title': item.select_one('.item-title').text.strip(),
+                'cover': item.select_one('img')['src'],
+                'source': url.geturl()
+            })
+        return indices
+
+    def get_work_detail(self, wid) -> dict:
+        soup = self.get_soup(f'/item.php', params={'item_id': wid}, cache=True)
+        jacket = soup.select_one('.item-data-disc-jacket')
+        trs = soup.select('.mod-item-data-table tr')
+        info = dict([(x.select_one('th').text.strip(), x.select_one('td')) for x in trs])
+        return {
+            'wid': wid,
+            'title': soup.select_one('.item-data-title h1').text.strip(),
+            'cover2': jacket.select_one('a.zoom')['href'],
+            'actors': [x.text.strip() for x in info.get('女優名').select('a')],
+            'director': OptionalValue(info.get('監督名').text.strip()).not_blank().get(),
+            'series': OptionalValue(info.get('シリーズ')).map(lambda td: [x.text.strip() for x in td.select('a')]).get(),
+            'genres': [x.text.strip() for x in info.get('ジャンル').select('a')],
+            'serial_number': info.get('品番').text.strip(),
+            'duration': OptionalValue(info.get('収録時間').text.strip()).not_blank().filter(lambda x: x not in ['分', '0分']).get(),
+            'release_date': datetime.strptime(info.get('発売日').text.strip(), '%Y年%m月%d日').date(),
+            'images': [x['href'] for x in soup.select('.item-data-image-gallery-body li a')],
+            'source': self.root_uri + f'/item.php?item_id={wid}'
+        }
+
+    def refactor_work(self, work: dict) -> None:
+        work['producer'] = self.name
+        work['serial_number'] = work['serial_number'].upper()
+
+    def list_actors(self) -> List[dict]:
+        actors = []
+        for alpha in ja_alphabet:
+            soup = self.get_soup(f'/actress_list.php', params={'name_syllabary': alpha})
+            for item in soup.select('.slick-track .carousel-content'):
+                if 'slick-cloned' in item.get('class', ''):
+                    continue
+                url = urlparse(urljoin(self.root_uri, item.select_one('a')['href']))
+                aid = parse_qs(url.query).get('actress_id')[0]
+                actors.append({
+                    'aid': aid,
+                    'name': item.select_one('img')['alt'],
+                    'image': item.select_one('img')['src'],
+                    'source': url.geturl()
+                })
+        return actors
+
+
+jav_producers = [SODPrime(), Prestige(), Venus(), Indies(), Planetplus(), Deeps(), Maxing(), CrystalEizou(), KmProduce(),
+                 AliceJapan()]
 
 
 def persist_producer(site: AdultSite, data_dir, export_api):
@@ -1067,7 +1134,7 @@ if __name__ == '__main__':
     for producer in d2pass_producers:
         persist_producer(producer, dirpath, kingen_api)
 
-    for producer in individual_producers:
+    for producer in jav_producers:
         persist_producer(producer, dirpath, kingen_api)
 
     for producer in faleno_producers:
