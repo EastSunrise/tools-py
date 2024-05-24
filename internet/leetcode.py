@@ -5,6 +5,7 @@ LeetCode.
 
 @author: Kingen
 """
+import argparse
 import json
 import os
 from collections import namedtuple
@@ -245,7 +246,7 @@ def parse_java_class(question: dict) -> JavaClass:
     return JavaClass(package_name, class_name, imports, methods)
 
 
-def question_as_java_class(dest_dir, template, slug: str, visited: dict, replaced=False):
+def question_as_java_class(dest_dir, jinja2_template, slug: str, visited: dict, replaced=False):
     if slug in visited:
         return
     question = leetcode.get_problem_detail(slug)
@@ -265,7 +266,7 @@ def question_as_java_class(dest_dir, template, slug: str, visited: dict, replace
     for sq in json.loads(question['similarQuestions']):
         sq_slug = sq['titleSlug']
         if sq_slug not in visited:
-            question_as_java_class(dest_dir, template, sq_slug, visited)
+            question_as_java_class(dest_dir, jinja2_template, sq_slug, visited)
         sqs.append(visited[sq_slug])
     tags = [str(x['slug']).upper().replace('-', '_') for x in question['topicTags']]
 
@@ -279,14 +280,31 @@ def question_as_java_class(dest_dir, template, slug: str, visited: dict, replace
         'tags': tags,
         'sqs': sqs,
     }
-    java_code = template.render(kwargs)
+    java_code = jinja2_template.render(kwargs)
     os.makedirs(package_path, exist_ok=True)
     with open(class_path, 'w') as fp:
         fp.write(java_code)
 
 
+def read_kwargs() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-s', '--slug', type=str, default='', help='specify the title slug of the question')
+    parser.add_argument('-d', '--dest-dir', type=str, default='', help='specify the directory of problems')
+    parser.add_argument('-r', '--replaced', action='store_true', help='enable replaced mode')
+    parser.add_argument('-l', '--log-level', default='debug', help='specify the log level of console')
+    return parser.parse_args()
+
+
+# pyinstaller -n leetcode --add-data templates;templates -F leetcode.py
 if __name__ == '__main__':
-    solution_template = Environment(loader=FileSystemLoader('.')).get_template('solution.java.jinja2')
-    qs_dir = 'src/main/java/cn/kingen/oj/leetcode/problem'
-    today_ques = leetcode.get_today_question()
-    question_as_java_class(qs_dir, solution_template, today_ques['question']['titleSlug'], {}, True)
+    args = read_kwargs()
+    common.console_handler.setLevel(args.log_level.upper())
+    slug = args.slug
+    if not slug or slug.strip() == '':
+        slug = leetcode.get_today_question()['question']['titleSlug']
+    qs_dir = args.dest_dir
+    if not qs_dir or qs_dir.strip() == '':
+        qs_dir = os.path.join(os.path.dirname(__file__), 'src/main/java/cn/kingen/oj/leetcode/problem')
+    template_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'templates'))
+    solution_template = Environment(loader=FileSystemLoader(template_dir)).get_template('solution.java.jinja2')
+    question_as_java_class(qs_dir, solution_template, slug, {}, args.replaced)
