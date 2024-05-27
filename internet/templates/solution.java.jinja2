@@ -1,8 +1,8 @@
-package cn.kingen.oj.leetcode.problem.{{ class.package_name }};
+package {{ class.package }};
 
-import cn.kingen.oj.leetcode.annotation.Difficulty;
-import cn.kingen.oj.leetcode.annotation.Question;
-import cn.kingen.oj.leetcode.annotation.Tag;
+import {{ support_package }}.Difficulty;
+import {{ support_package }}.Question;
+import {{ support_package }}.Tag;
 
 {% for i in class.imports %}import {{ i }};
 {% endfor %}
@@ -11,13 +11,12 @@ import cn.kingen.oj.leetcode.annotation.Tag;
  * <a href="https://leetcode.cn/problems/{{ slug }}/">{{ fid }}. {{ title }}</a>
  *
  * @author Kingen
-{% for sq in sqs %} * @see cn.kingen.oj.leetcode.problem.{{ sq.package_name }}.{{ sq.class_name }}{% endfor %}
+{% for sq in sqs %} * @see {{ sq.package }}.{{ sq.class_name }}
+{% endfor %}
  */
 @Question({% if paid_only %}
   paidOnly = true,{% endif %}{% if tags %}
-  tags = {
-  {% for tag in tags %} Tag.{{ tag }}{% if not loop.last %},{% endif %}{% endfor %}
-  },{% endif %}
+  tags = { {% for tag in tags %} Tag.{{ tag }}{% if not loop.last %},{% endif %}{% endfor %} },{% endif %}
   difficulty = Difficulty.{{ difficulty }}
 )
 public class {{ class.class_name }} {

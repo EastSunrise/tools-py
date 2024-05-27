@@ -168,6 +168,10 @@ class LeetCode(BaseSite):
 leetcode = LeetCode()
 java_type_imports = {
     'Integer': 'java.lang.Integer',
+    'Long': 'java.lang.Long',
+    'Double': 'java.lang.Double',
+    'Boolean': 'java.lang.Boolean',
+    'String': 'java.lang.String',
     'List': 'java.util.List',
     'Set': 'java.util.Set',
     'Map': 'java.util.Map',
@@ -180,18 +184,18 @@ java_type_default_value = {
     'boolean': 'false'
 }
 JavaType = namedtuple('JavaType', ['name', 'imports', 'default_value'])
-JavaClass = namedtuple('JavaClass', ['package_name', 'class_name', 'imports', 'methods'])
+JavaClass = namedtuple('JavaClass', ['package', 'class_name', 'imports', 'methods'])
 JavaMethod = namedtuple('JavaMethod', ['name', 'modifiers', 'return_type', 'parameters', 'body'])
 JavaParameter = namedtuple('JavaParameter', ['name', 'type'])
 Void = JavaType('void', set(), None)
 
 
-def parse_java_type(type_node: Type) -> JavaType:
+def parse_java_type(type_node: Type, support_package: str) -> JavaType:
     if type_node is None:
         return Void
     attrs = dict((type_node.attrs[i], type_node.children[i]) for i in range(len(type_node.attrs)))
     if isinstance(type_node, TypeArgument):
-        return parse_java_type(attrs['type'])
+        return parse_java_type(attrs['type'], support_package)
     name, dimensions = attrs['name'], attrs['dimensions']
     dimensions_suffix = '[]' * len(dimensions)
     imports = set()
@@ -200,65 +204,103 @@ def parse_java_type(type_node: Type) -> JavaType:
             return JavaType(name, imports, java_type_default_value[name])
         return JavaType(name + dimensions_suffix, imports, 'null')
     if isinstance(type_node, ReferenceType):
-        imports.add(java_type_imports[name])
+        if name in java_type_imports:
+            imports.add(java_type_imports[name])
+        else:
+            support_package = support_package.strip()
+            if support_package != '' and not support_package.endswith('.'):
+                support_package += '.'
+            imports.add(support_package + name)
         if attrs['arguments'] is None:
             return JavaType(name + dimensions_suffix, imports, 'null')
-        args = []
+        arg_names = []
         for arg in attrs['arguments']:
-            arg_type = parse_java_type(arg)
-            args.append(arg_type.name)
+            arg_type = parse_java_type(arg, support_package)
+            arg_names.append(arg_type.name)
             imports.update(arg_type.imports)
-        return JavaType(f'{name}<{",".join(args)}>' + dimensions_suffix, imports, 'null')
+        return JavaType(f'{name}<{",".join(arg_names)}>' + dimensions_suffix, imports, 'null')
     raise ValueError(f'Unsupported type: {type_node}')
 
 
-def parse_java_class(question: dict) -> JavaClass:
-    fid = int(question['questionFrontendId'])
-    package_name = f'p{fid // 100 * 100}'
+def parse_class_name(fid: str, class_name: str, qs_package: str):
+    qs_package = qs_package.strip()
+    if qs_package != '' and not qs_package.endswith('.'):
+        qs_package = qs_package + '.'
+    try:
+        fid = int(fid)
+        if class_name == 'Solution':
+            return f'{qs_package}p{fid // 100 * 100}', f'Solution{fid}'
+        else:
+            return f'{qs_package}p{fid // 100 * 100}', class_name
+    except ValueError:
+        if fid.startswith('面试题'):
+            parts = fid[4:].split('.')
+            if class_name == 'Solution':
+                return f'{qs_package}ch{int(parts[0]):02d}', f'Interview{int(parts[1]):02d}'
+            else:
+                return f'{qs_package}ch{int(parts[0]):02d}', class_name
+        if fid.startswith('LCR') or fid.startswith('LCS') or fid.startswith('LCP'):
+            pname = fid[0:3].lower()
+            if class_name == 'Solution':
+                return qs_package + pname, f'{pname.capitalize()}{int(fid[4:]):03d}'
+            else:
+                return qs_package + pname, class_name
+        raise ValueError(f'Invalid question id: {fid}')
+
+
+def parse_java_class(question: dict, qs_package: str, support_package: str) -> JavaClass:
+    fid = question['questionFrontendId']
     snippets = question['codeSnippets']
     if snippets is None:
-        return JavaClass(package_name, f'Solution{fid}', set(), [])
+        package, class_name = parse_class_name(fid, 'Solution', qs_package)
+        return JavaClass(package, class_name, set(), [])
     codes = [x for x in snippets if x['langSlug'] == 'java']
     if len(codes) == 0:
-        return JavaClass(package_name, f'Solution{fid}', set(), [])
+        package, class_name = parse_class_name(fid, 'Solution', qs_package)
+        return JavaClass(package, class_name, set(), [])
 
-    java_code = codes[0]['code']
-    class_node = javalang.parse.parse(java_code).types[0]
-    class_name = class_node.name if class_node.name != 'Solution' else f'Solution{fid}'
+    class_node = javalang.parse.parse(codes[0]['code']).types[0]
+    package, class_name = parse_class_name(fid, class_node.name, qs_package)
     imports, methods = set(), []
     for constructor in class_node.constructors:
         parameters = []
         for param in constructor.parameters:
-            java_type = parse_java_type(param.type)
+            java_type = parse_java_type(param.type, support_package)
             parameters.append(JavaParameter(param.name, java_type))
             imports.update(java_type.imports)
         methods.append(JavaMethod(class_name, constructor.modifiers, None, parameters, None))
     for method in class_node.methods:
         parameters = []
         for param in method.parameters:
-            java_type = parse_java_type(param.type)
+            java_type = parse_java_type(param.type, support_package)
             parameters.append(JavaParameter(param.name, java_type))
             imports.update(java_type.imports)
-        return_type = parse_java_type(method.return_type)
+        return_type = parse_java_type(method.return_type, support_package)
         imports.update(return_type.imports)
         body = '' if return_type == Void else f'return {return_type.default_value};'
         methods.append(JavaMethod(method.name, method.modifiers, return_type, parameters, body))
-    return JavaClass(package_name, class_name, imports, methods)
+    return JavaClass(package, class_name, imports, methods)
 
 
-def question_as_java_class(dest_dir, jinja2_template, slug: str, visited: dict, replaced=False):
+def save_question(temp, slug, visited, package_dir: str, root_package: str, replaced=False):
     if slug in visited:
         return
     question = leetcode.get_problem_detail(slug)
     if question is None:
         raise ValueError(f'Question {slug} not found. Try again later')
-    fid = int(question['questionFrontendId'])
-    log.info('parse question %d. %s', fid, slug)
-    java_class = parse_java_class(question)
+    fid = question['questionFrontendId']
+    log.info('parse question %s. %s', fid, slug)
+    root_package = root_package.strip()
+    if root_package != '' and not root_package.endswith('.'):
+        root_package = root_package + '.'
+    qs_package, support_package = root_package + 'problem', root_package + 'support'
+    java_class = parse_java_class(question, qs_package, support_package)
     visited[slug] = java_class
 
-    package_path = f'{dest_dir}/{java_class.package_name}'
-    class_path = os.path.join(package_path, java_class.class_name + '.java')
+    if not package_dir or package_dir.strip() == '':
+        package_dir = '.'
+    package_path = f'{package_dir}/{java_class.package.replace(".", "/")}'
+    class_path = f'{package_path}/{java_class.class_name}.java'
     if not replaced and os.path.exists(class_path):
         return
 
@@ -266,7 +308,7 @@ def question_as_java_class(dest_dir, jinja2_template, slug: str, visited: dict, 
     for sq in json.loads(question['similarQuestions']):
         sq_slug = sq['titleSlug']
         if sq_slug not in visited:
-            question_as_java_class(dest_dir, jinja2_template, sq_slug, visited)
+            save_question(temp, sq_slug, visited, package_dir, root_package, replaced)
         sqs.append(visited[sq_slug])
     tags = [str(x['slug']).upper().replace('-', '_') for x in question['topicTags']]
 
@@ -276,35 +318,35 @@ def question_as_java_class(dest_dir, jinja2_template, slug: str, visited: dict, 
         'title': question['title'],
         'paid_only': question['isPaidOnly'],
         'difficulty': question['difficulty'].upper(),
+        'support_package': support_package,
         'class': java_class,
         'tags': tags,
         'sqs': sqs,
     }
-    java_code = jinja2_template.render(kwargs)
+    java_code = temp.render(kwargs)
     os.makedirs(package_path, exist_ok=True)
-    with open(class_path, 'w') as fp:
+    log.info('write to %s', class_path)
+    with open(class_path, 'w', encoding='utf-8') as fp:
         fp.write(java_code)
 
 
 def read_kwargs() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument('-s', '--slug', type=str, default='', help='specify the title slug of the question')
-    parser.add_argument('-d', '--dest-dir', type=str, default='', help='specify the directory of problems')
+    parser.add_argument('-s', '--slug', type=str, help='specify the title slug of the question')
+    parser.add_argument('-d', '--dest-dir', default='src/main/java', help='specify the directory of problems')
+    parser.add_argument('-p', '--package', default='leetcode', help='specify the pacakge of problems')
     parser.add_argument('-r', '--replaced', action='store_true', help='enable replaced mode')
     parser.add_argument('-l', '--log-level', default='debug', help='specify the log level of console')
     return parser.parse_args()
 
 
-# pyinstaller -n leetcode --add-data templates;templates -F leetcode.py
+# pyinstaller -n leetcode -i ./assets/leetcode.ico --add-data templates;templates -F leetcode.py
 if __name__ == '__main__':
     args = read_kwargs()
     common.console_handler.setLevel(args.log_level.upper())
-    slug = args.slug
-    if not slug or slug.strip() == '':
-        slug = leetcode.get_today_question()['question']['titleSlug']
-    qs_dir = args.dest_dir
-    if not qs_dir or qs_dir.strip() == '':
-        qs_dir = os.path.join(os.path.dirname(__file__), 'src/main/java/cn/kingen/oj/leetcode/problem')
+    title_slug = args.slug
+    if not title_slug or title_slug.strip() == '':
+        title_slug = leetcode.get_today_question()['question']['titleSlug']
     template_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'templates'))
     solution_template = Environment(loader=FileSystemLoader(template_dir)).get_template('solution.java.jinja2')
-    question_as_java_class(qs_dir, solution_template, slug, {}, args.replaced)
+    save_question(solution_template, title_slug, {}, args.dest_dir, args.package, args.replaced)
