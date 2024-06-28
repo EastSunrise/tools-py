@@ -167,10 +167,14 @@ class LeetCode(BaseSite):
 
 leetcode = LeetCode()
 java_type_imports = {
+    'Boolean': 'java.lang.Boolean',
+    'Byte': 'java.lang.Byte',
+    'Short': 'java.lang.Short',
     'Integer': 'java.lang.Integer',
     'Long': 'java.lang.Long',
+    'Float': 'java.lang.Float',
     'Double': 'java.lang.Double',
-    'Boolean': 'java.lang.Boolean',
+    'Character': 'java.lang.Character',
     'String': 'java.lang.String',
     'List': 'java.util.List',
     'Set': 'java.util.Set',
@@ -178,10 +182,14 @@ java_type_imports = {
     'Iterator': 'java.util.Iterator'
 }
 java_type_default_value = {
+    'boolean': 'false',
+    'byte': '0',
+    'short': '0',
     'int': '0',
     'long': '0',
+    'float': '0.0',
     'double': '0.0',
-    'boolean': 'false'
+    'char': "' '",
 }
 JavaType = namedtuple('JavaType', ['name', 'imports', 'default_value'])
 JavaClass = namedtuple('JavaClass', ['package', 'class_name', 'imports', 'methods'])
