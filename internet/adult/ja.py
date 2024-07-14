@@ -1149,6 +1149,7 @@ def read_kwargs() -> argparse.Namespace:
     parser.add_argument('-p', '--port', type=int, default=12301, help='specify the port number')
     parser.add_argument('-d', '--data-dir', default='', help='specify the directory of data')
     parser.add_argument('-l', '--log-level', default='info', help='specify the log level of console')
+    parser.add_argument('-e', '--excluded', default='', help='specify excluded producers, separated by comma')
     parser.add_argument('--help', action='help')
     return parser.parse_args()
 
@@ -1164,15 +1165,11 @@ if __name__ == '__main__':
     if not os.path.isdir(dirpath):
         log.info('create directory: ' + dirpath)
         os.makedirs(dirpath, exist_ok=True)
+    excluded = set(x.strip() for x in args.excluded.strip().split(','))
 
-    for producer in d2pass_producers:
-        persist_producer(producer, dirpath, kingen_api)
-
-    for producer in jav_producers:
-        persist_producer(producer, dirpath, kingen_api)
-
-    for producer in faleno_producers:
-        persist_producer(producer, dirpath, kingen_api)
-
-    for producer in will_producers:
+    producers = d2pass_producers + jav_producers + faleno_producers + will_producers
+    for producer in producers:
+        if producer.name in excluded:
+            log.info('skip producer: ' + producer.name)
+            continue
         persist_producer(producer, dirpath, kingen_api)
