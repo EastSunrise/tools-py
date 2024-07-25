@@ -9,6 +9,7 @@
 // @match        https://www.dmm.co.jp/mono/dvd/-/detail/=/cid=**
 // ==/UserScript==
 
+const api = '/study/api/v1';
 const snRegex = /([a-z]{2,6})(\d{3,5})/g;
 const trailerRegex = /"src":\s*"([^"]+)"/;
 
@@ -37,14 +38,14 @@ const getDetail = () => {
     }
     return {
         'title': $('h1#title').text().trim(),
-        'release_date': info['発売日：'].text().trim().replace(/\//g, "-"),
-        'duration': info['収録時間：'].text().trim(),
+        'releaseDate': (info['発売日：'] || info['商品発売日：']).text().trim().replace(/\//g, "-"),
+        'duration': info['収録時間：'].text().trim().trim(),
         'actors': info['出演者：'].find('a').map((i, e) => $(e).text().trim()).toArray(),
-        'director': info['監督：'].find('a').map((i, e) => $(e).text().trim()).toArray(),
+        'directors': info['監督：'].find('a').map((i, e) => $(e).text().trim()).toArray(),
         'series': info['シリーズ：'].find('a').map((i, e) => $(e).text().trim()).toArray(),
         'producer': info['メーカー：'].text().trim(),
         'genres': info['ジャンル：'].find('a').map((i, e) => $(e).text().trim()).toArray(),
-        'serial_number': formatSn(info['品番：'].text().trim()),
+        'serialNumber': formatSn(info['品番：'].text().trim()),
         'description': $('p.mg-b20').text().trim()
     }
 }
@@ -74,11 +75,6 @@ const previewSrc = (src) => {
     }
 }
 
-const resolveUrl = relativeUrl => {
-    return new URL(relativeUrl, window.location.href).href;
-}
-
-
 const getTrailer = (callback) => {
     let url = $('.fn-sampleVideoBtn').data('video-url');
     $.get(url, frame => {
@@ -86,14 +82,13 @@ const getTrailer = (callback) => {
         return $.get(src, data => {
             const match = trailerRegex.exec(data);
             if (match && match[1]) {
-                callback(resolveUrl(match[1]));
+                callback(new URL(match[1], window.location.href).href);
             } else {
                 alert('获取预告片失败');
             }
         });
     });
 }
-
 
 const getImages = () => {
     let cover = $('#package-modal-image1 img').attr('src')
@@ -110,56 +105,73 @@ const getImages = () => {
     };
 }
 
-const exportWork = work => {
+const doPutWork = work => {
     console.log(work);
-    fetch('https://192.168.1.110/study/work/import', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+    fetch(api + '/works/' + work['serialNumber'] + '?merge=1', {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+        },
         body: JSON.stringify(work)
-    }).then(response => response.json()).then(result => {
-        if (result.code === 0) {
-            if (result['updated']) {
-                alert('已更新');
-            } else {
-                alert('已忽略');
-            }
+    }).then(response => {
+        if (response.status === 200) {
+            alert('已更新')
+        } else if (response.status === 201) {
+            alert('已添加')
+        } else if (response.status === 204) {
+            alert('已忽略')
+        } else if (response.status === 409) {
+            response.json().then(
+                result => {
+                    console.log('有冲突', result['data']);
+                    alert('有冲突，请查看控制台');
+                }
+            )
         } else {
-            alert(result.message);
-            console.log(result['conflicts']);
+            response.text().then(text => {
+                console.log('导入失败', text);
+                alert('导入失败：' + text);
+            })
         }
     }).catch(reason => {
         alert(reason)
     })
 }
 
-const exportAll = () => {
-    getTrailer(trailer => {
-        let work = {
-            ...getDetail(),
-            ...getImages(),
-            'trailer': trailer,
-            'source': window.location.href
+const exportWork = (withDetail = false, withImages = false, withTrailer = false) => {
+    if (!withDetail && !withImages && !withTrailer) {
+        return
+    }
+    let work = {};
+    let detail = getDetail();
+    if (withDetail) {
+        work = detail;
+    } else {
+        work = {
+            'title': detail['serialNumber'],
+            'serialNumber': detail['serialNumber']
         }
-        exportWork(work);
-    });
-}
-
-const exportTrailer = () => {
-    getTrailer(trailer => {
-        let sn = getDetail()['serial_number'];
-        let work = {
-            'serial_number': sn,
-            'trailer': trailer,
-            'source': window.location.href
-        }
-        exportWork(work);
-    });
+    }
+    if (withImages) {
+        work = {...work, ...getImages()};
+    }
+    work['source'] = window.location.href;
+    if (withTrailer) {
+        getTrailer(trailer => {
+            work['trailer'] = trailer;
+            doPutWork(work);
+        });
+    } else {
+        doPutWork(work);
+    }
 }
 
 $(function () {
-    const btn = $('<button style="margin-right: 0; background-color: orange">导出</button>');
-    btn.on('click', exportAll);
-    const btn2 = $('<button style="margin-right: 0; background-color: orange">导出视频</button>');
-    btn2.on('click', exportTrailer);
-    $('.box-rank').append(btn, btn2);
+    const btn = $('<button type="button" style="margin-left: 30px; float: right; background-color: orange">导出</button>');
+    btn.on('click', () => exportWork(true, true, true));
+    const btn2 = $('<button type="button" style="margin-left: 30px; float: right; background-color: orange">导出媒体</button>');
+    btn2.on('click', () => exportWork(false, true, true));
+    const btn3 = $('<button type="button" style="margin-left: 30px; float: right; background-color: orange">导出视频</button>');
+    btn3.on('click', () => exportWork(false, false, true));
+    $('#title').parent().append(btn, btn2, btn3);
 })
