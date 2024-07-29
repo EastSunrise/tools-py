@@ -11,6 +11,8 @@ from datetime import timedelta, time as time_cls, datetime, date
 from re import Pattern
 from typing import List
 
+from requests import Response
+
 from common import create_logger, ComplexEncoder, YearMonth
 from internet import BaseSite
 from internet.adult import original_date, OrderedAdultSite, MonthlyAdultSite
@@ -21,15 +23,18 @@ log = create_logger(__name__)
 class KingenWeb(BaseSite):
     def __init__(self, home='http://127.0.0.1:12301/'):
         super().__init__(home, 'kingen-web')
+        self.__api_prefix = '/study/api/v1'
 
-    def import_actor(self, actor: dict):
-        return self.post_json('/study/actor/import', json_data=self.format_json(actor))
+    def import_actor(self, actor: dict) -> Response:
+        return self._do_request_cacheable(self.__api_prefix + f'/actors/{actor["name"]}', 'PUT', query={'merge': 1},
+                                          json_data=self.format_json(actor))
 
     def import_work(self, work: dict):
-        return self.post_json('/study/work/import', json_data=self.format_json(work))
+        return self._do_request_cacheable(self.__api_prefix + f'/works/{work["serialNumber"]}', 'PUT', query={'merge': 1},
+                                          json_data=self.format_json(work))
 
     def import_resources(self, sn: str, resources: List[dict]):
-        return self.post_json(f'/study/work/{sn}/resource/import', json_data=resources)
+        return self._do_request_cacheable(self.__api_prefix + f'/work/{sn}/resources', 'PUT', json_data=resources)
 
 
 def export_data(data_file, export_func):
@@ -50,25 +55,29 @@ def export_data(data_file, export_func):
 
     changed = False
     for i in range(len(records)):
-        if i >= len(exports) or exports[i]['record_at'] != records[i]['update_at']:
+        if i >= len(exports) or exports[i]['recordAt'] != records[i]['updateAt']:
             changed = True
-            ignored, updated, errors = 0, 0, []
+            updated, created, ignored, errors = 0, 0, 0, []
             for datum in records[i]['data']:
                 datum = json.loads(json.dumps(datum, ensure_ascii=False, cls=ComplexEncoder))
-                result = export_func(datum)
-                if result['code'] == 0:
-                    if result['updated']:
-                        updated += 1
-                    else:
-                        ignored += 1
+                resp = export_func(datum)
+                if resp.status_code == 200:
+                    updated += 1
+                elif resp.status_code == 201:
+                    created += 1
+                elif resp.status_code == 204:
+                    ignored += 1
+                elif resp.status_code == 409:
+                    errors.append({'error': json.loads(resp.content.decode('utf-8')), 'source': datum})
                 else:
-                    errors.append({'error': result, 'source': datum})
+                    errors.append({'error': resp.content.decode('utf-8'), 'source': datum})
             export = {
-                'record_at': records[i]['update_at'],
-                'update_at': datetime.now(),
-                'ignored': ignored,
+                'recordAt': records[i]['updateAt'],
+                'updateAt': datetime.now(),
                 'updated': updated,
-                'errors_count': len(errors),
+                'created': created,
+                'ignored': ignored,
+                'errorsCount': len(errors),
                 'errors': errors
             }
             if i >= len(exports):
@@ -88,7 +97,7 @@ def import_data(filepath, list_func, refactor_func, interval=timedelta(days=14))
     if os.path.exists(filepath):
         with open(filepath, 'r', encoding='utf-8') as fp:
             records: List[dict] = json.load(fp)
-        update_at = datetime.strptime(records[-1]['update_at'], '%Y-%m-%d %H:%M:%S.%f')
+        update_at = datetime.strptime(records[-1]['updateAt'], '%Y-%m-%d %H:%M:%S.%f')
     else:
         update_at = datetime.combine(original_date, time_cls())
 
@@ -99,7 +108,7 @@ def import_data(filepath, list_func, refactor_func, interval=timedelta(days=14))
         for datum in data:
             refactor_func(datum)
         records = [{
-            'update_at': datetime.now(),
+            'updateAt': datetime.now(),
             'count': len(data),
             'data': data
         }]
@@ -125,7 +134,7 @@ def import_ordered_works(filepath, site: OrderedAdultSite, interval=timedelta(da
         for work in works:
             site.refactor_work(work)
         records.append({
-            'update_at': datetime.now(),
+            'updateAt': datetime.now(),
             'start': start,
             'stop': stop,
             'count': len(works),
@@ -153,7 +162,7 @@ def import_monthly_works(filepath, site: MonthlyAdultSite) -> None:
         for work in works:
             site.refactor_work(work)
         records.append({
-            'update_at': datetime.now(),
+            'updateAt': datetime.now(),
             'start': str(start),
             'stop': str(stop),
             'count': len(works),
@@ -167,9 +176,9 @@ def validate_works(works: List[dict], sn_regexp: Pattern, ordered=True) -> None:
     """
     Validates properties of given works.
     """
-    log.debug('# checking serial_numbers')
+    log.debug('# checking serial numbers')
     for work in works:
-        sn = work.get('serial_number')
+        sn = work.get('serialNumber')
         if sn is not None and sn_regexp.fullmatch(sn) is None:
             log.error('mismatched sn: ' + sn)
 
@@ -177,7 +186,7 @@ def validate_works(works: List[dict], sn_regexp: Pattern, ordered=True) -> None:
         log.debug('# checking release dates')
         last_date = None
         for work in works:
-            release_date = work.get('release_date')
+            release_date = work.get('releaseDate')
             if release_date is None:
                 log.error('no release date: ' + str(work))
             elif last_date is not None and last_date < release_date:

@@ -13,9 +13,11 @@ from urllib.parse import urljoin
 
 from werkzeug.exceptions import NotFound
 
+import common
 from common import create_logger
 from internet import base_headers
 from internet.adult import AdultSite, ActorSite, export
+from internet.adult.ja import read_kwargs
 
 log = create_logger(__name__)
 
@@ -64,9 +66,9 @@ class HuiAV(AdultSite, ActorSite):
         total = int(actor_box.select_one('h1 span').text.strip()[:-3])
         return total, [{
             'wid': ul.select_one('li.eye')['vid'],
-            'serial_number': ul.select_one('a')['title'],
+            'serialNumber': ul.select_one('a')['title'],
             'cover2': ul.select_one('img')['img'].replace(".jpgf.jpg", ".jpg"),
-            'src_count': int(ul.select_one('span[type=total]').text.strip()),
+            'srcCount': int(ul.select_one('span[type=total]').text.strip()),
             'view': int(ul.select_one('span[type=view]').text.strip()),
             'like': int(ul.select_one('span[type=like]').text.strip())
         } for ul in actor_box.select('ul')]
@@ -94,18 +96,18 @@ class HuiAV(AdultSite, ActorSite):
         } for ul in soup.select_one('#magnet').select('ul')]
         return {
             'wid': wid,
-            'serial_number': serial_number,
+            'serialNumber': serial_number,
             'cover2': cover.replace(".jpgf.jpg", ".jpg"),
             'actors': actors,
-            'online_links': online_links,
-            'magnet_links': magnet_links,
+            'onlineLinks': online_links,
+            'magnetLinks': magnet_links,
         }
 
     def refactor_work(self, work: dict):
-        work['serial_number'] = work['serial_number'].upper()
+        work['serialNumber'] = work['serialNumber'].upper()
         work['actors'] = [x['name'] for x in work.get('actors', [])]
-        root_resource = {'title': work['serial_number'] + ' - ' + self.name, 'url': self.root_uri + f'/{work["wid"]}/'}
-        work['resources'] = [root_resource] + work.get('online_links', []) + work.get('magnet_links', [])
+        root_resource = {'title': work['serialNumber'] + ' - ' + self.name, 'url': self.root_uri + f'/{work["wid"]}/'}
+        work['resources'] = [root_resource] + work.get('onlineLinks', []) + work.get('magnetLinks', [])
 
     def __parse_filesize(self, intro):
         matcher = self.intro_regexp.fullmatch(intro)
@@ -131,18 +133,19 @@ class HuiAV(AdultSite, ActorSite):
         return records
 
 
-api = export.KingenWeb()
-
-
-def export_resources(work):
-    result = api.import_resources(work['serial_number'], work['resources'])
+def export_resources(api, work):
+    result = api.import_resources(work['serialNumber'], work['resources'])
     if result['code'] == 0:
         result['updated'] = result['data'] > 0
     return result
 
 
 if __name__ == '__main__':
+    args = read_kwargs()
+    common.console_handler.setLevel(args.log_level.upper())
+    kingen_api = export.KingenWeb(f'http://{args.host}:{args.port}')
+
     site = HuiAV()
     data_file = os.path.join('tmp', site.name + '.json')
     export.import_data(data_file, site.list_works, site.refactor_work)
-    export.export_data(data_file, export_resources)
+    export.export_data(data_file, lambda x: export_resources(kingen_api, x))
