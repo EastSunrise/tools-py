@@ -7,11 +7,18 @@
 // @require      https://cdn.staticfile.org/jquery/3.4.1/jquery.min.js
 // @require      https://cdnjs.cloudflare.com/ajax/libs/layer/3.5.1/layer.js
 // @match        https://www.dmm.co.jp/mono/dvd/-/detail/=/cid=**
+// @match        https://www.dmm.co.jp/digital/videoa/-/detail/=/cid=**
 // ==/UserScript==
 
 const api = '/study/api/v1';
 const snRegex = /([a-z]{2,6})(\d{3,5})/g;
+const samplePlayRegex = /sampleplay\('(\/digital\/[^']+)'\)/
 const trailerRegex = /"src":\s*"([^"]+)"/;
+const trailerRegex2 = /sampleUrl\s*=\s*"([^"]+)"/;
+
+const goodType =
+    window.location.href.match(/dmm\.co\.jp\/mono\/dvd\/*/) ? 'dvd' :
+        window.location.href.match(/dmm\.co\.jp\/digital\/videoa\/*/) ? 'video' : 'unknown';
 
 const formatSn = sn => {
     let match = snRegex.exec(sn);
@@ -27,9 +34,19 @@ const formatSn = sn => {
     return match[1].toUpperCase() + '-' + String(num).padStart(3, '0');
 }
 
-const getDetail = () => {
+const parseDescription = () => {
+    if (goodType === 'dvd') {
+        return $('p.mg-b20').text().trim()
+    }
+    if (goodType === 'video') {
+        return $('meta[name="description"]').attr('content').trim();
+    }
+    return null;
+}
+
+const parseDetail = () => {
     let info = {}
-    for (let tr of $('.wrapper-product table').find('tr')) {
+    for (let tr of $('table.mg-b20').find('tr')) {
         if ($(tr).find('td').length <= 1) {
             continue
         }
@@ -46,7 +63,7 @@ const getDetail = () => {
         'producer': info['メーカー：'].text().trim(),
         'genres': info['ジャンル：'].find('a').map((i, e) => $(e).text().trim()).toArray(),
         'serialNumber': formatSn(info['品番：'].text().trim()),
-        'description': $('p.mg-b20').text().trim()
+        'description': parseDescription()
     }
 }
 
@@ -75,34 +92,80 @@ const previewSrc = (src) => {
     }
 }
 
-const getTrailer = (callback) => {
-    let url = $('.fn-sampleVideoBtn').data('video-url');
-    $.get(url, frame => {
-        let src = $(frame).attr('src');
-        return $.get(src, data => {
-            const match = trailerRegex.exec(data);
-            if (match && match[1]) {
-                callback(new URL(match[1], window.location.href).href);
-            } else {
-                alert('获取预告片失败');
-            }
-        });
-    });
+const parseImages = () => {
+    if (goodType === 'dvd') {
+        const cover = $('#package-modal-image1 img').attr('src')
+        const cover2 = $('meta[property="og:image"]').attr('content');
+        const images = []
+        for (let img of $('.fn-sampleImage li.fn-sampleImage__zoom').find('img')) {
+            let src = $(img).data('lazy') || $(img).attr('src');
+            images.push(previewSrc(src));
+        }
+        return {
+            'cover': cover,
+            'cover2': cover2,
+            'images': images
+        };
+    }
+
+    if (goodType === 'video') {
+        const cover = $('meta[property="og:image"]').attr('content');
+        const cover2 = $('a[name="package-image"]').attr('href');
+        const images = []
+        for (let a of $('#sample-image-block').find('a')) {
+            images.push($(a).attr('href'));
+        }
+        return {
+            'cover': cover,
+            'cover2': cover2,
+            'images': images
+        };
+    }
+    return {}
 }
 
-const getImages = () => {
-    let cover = $('#package-modal-image1 img').attr('src')
-    let cover2 = $('meta[property="og:image"]').attr('content');
-    let images = []
-    for (let img of $('.fn-sampleImage li.fn-sampleImage__zoom').find('img')) {
-        let src = $(img).data('lazy') || $(img).attr('src');
-        images.push(previewSrc(src));
+const getVideoTrailer = async (url) => {
+    const frame = await $.get(url);
+    const src = $(frame).attr('src');
+    const data = await $.get(src);
+    const match = trailerRegex.exec(data);
+    if (match && match[1]) {
+        return new URL(match[1], window.location.href).href;
     }
-    return {
-        'cover': cover,
-        'cover2': cover2,
-        'images': images
-    };
+    console.log('data', data)
+    alert('无法匹配视频预告片');
+}
+
+const parseTrailer = async () => {
+    if (goodType === 'dvd') {
+        const url = $('#detail-sample-movie a').data('video-url');
+        return await getVideoTrailer(url);
+    }
+
+    if (goodType === 'video') {
+        let btn = $('#detail-sample-movie a');
+        if (btn && btn.length > 0) {
+            const url = samplePlayRegex.exec(btn.attr('onclick'))[1];
+            return await getVideoTrailer(url);
+        }
+
+        btn = $('#detail-sample-vr-movie a');
+        if (!btn || btn.length === 0) {
+            alert('没有预告片')
+            return
+        }
+        const src = samplePlayRegex.exec(btn.attr('onclick'))[1];
+        const data = await $.get(src);
+        const match = trailerRegex2.exec(data);
+        if (match && match[1]) {
+            return new URL(match[1], window.location.href).href;
+        }
+        console.log('data', data)
+        alert('无法匹配VR预告片');
+        return
+    }
+
+    alert('获取预告片失败：未知类型');
 }
 
 const doPutWork = work => {
@@ -143,7 +206,7 @@ const exportWork = (withDetail = false, withImages = false, withTrailer = false)
         return
     }
     let work = {};
-    let detail = getDetail();
+    let detail = parseDetail();
     if (withDetail) {
         work = detail;
     } else {
@@ -153,13 +216,15 @@ const exportWork = (withDetail = false, withImages = false, withTrailer = false)
         }
     }
     if (withImages) {
-        work = {...work, ...getImages()};
+        work = {...work, ...parseImages()};
     }
     work['source'] = window.location.href;
     if (withTrailer) {
-        getTrailer(trailer => {
-            work['trailer'] = trailer;
-            doPutWork(work);
+        parseTrailer().then(trailer => {
+            if (trailer) {
+                work['trailer'] = trailer;
+                doPutWork(work);
+            }
         });
     } else {
         doPutWork(work);
