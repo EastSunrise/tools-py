@@ -134,6 +134,7 @@ const getVideoTrailer = async (url) => {
     }
     console.log('data', data)
     alert('无法匹配视频预告片');
+    return false;
 }
 
 const parseTrailer = async () => {
@@ -152,7 +153,7 @@ const parseTrailer = async () => {
         btn = $('#detail-sample-vr-movie a');
         if (!btn || btn.length === 0) {
             alert('没有预告片')
-            return
+            return false;
         }
         const src = samplePlayRegex.exec(btn.attr('onclick'))[1];
         const data = await $.get(src);
@@ -162,10 +163,11 @@ const parseTrailer = async () => {
         }
         console.log('data', data)
         alert('无法匹配VR预告片');
-        return
+        return false;
     }
 
     alert('获取预告片失败：未知类型');
+    return false;
 }
 
 const doPutWork = work => {
@@ -223,6 +225,8 @@ const exportWork = (withDetail = false, withImages = false, withTrailer = false)
         parseTrailer().then(trailer => {
             if (trailer) {
                 work['trailer'] = trailer;
+                doPutWork(work);
+            } else {
                 doPutWork(work);
             }
         });
