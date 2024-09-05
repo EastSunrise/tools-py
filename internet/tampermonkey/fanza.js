@@ -171,31 +171,35 @@ const parseTrailer = async () => {
 }
 
 const doPutWork = work => {
-    console.log(work);
-    fetch(api + '/works/' + work['serialNumber'] + '?merge=1', {
+    console.log('save work', work);
+    fetch(`${api}/works/${work['serialNumber']}?merge=1`, {
         method: 'PUT',
         headers: {
             'Content-Type': 'application/json',
         },
         body: JSON.stringify(work)
     }).then(response => {
-        if (response.status === 200) {
-            alert('已更新')
-        } else if (response.status === 201) {
-            alert('已添加')
+        if (response.status === 200 || response.status === 201) {
+            const text = response.status === 200 ? '已更新' : '已添加';
+            response.json().then(
+                result => {
+                    console.log('success', result);
+                    alert(`${text}：${result['serialNumber']}`);
+                }
+            )
         } else if (response.status === 204) {
             alert('已忽略')
         } else if (response.status === 409) {
             response.json().then(
                 result => {
-                    console.log('有冲突', result['data']);
+                    console.log('conflict', result['data']);
                     alert('有冲突，请查看控制台');
                 }
             )
         } else {
             response.text().then(text => {
-                console.log('导入失败', text);
-                alert('导入失败：' + text);
+                console.log('failed to save', text);
+                alert('更新失败：' + text);
             })
         }
     }).catch(reason => {
