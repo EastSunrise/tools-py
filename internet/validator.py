@@ -8,9 +8,9 @@ Validators for data.
 from re import Pattern
 from urllib.parse import urlparse
 
-from common import create_logger
+import common
 
-log = create_logger(__name__)
+log = common.get_logger()
 
 
 def validate_not_blank(idx, field: str, value):

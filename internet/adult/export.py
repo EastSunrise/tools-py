@@ -13,11 +13,12 @@ from typing import List
 
 from requests import Response
 
-from common import create_logger, ComplexEncoder, YearMonth
+import common
+from common import ComplexEncoder, YearMonth
 from internet import BaseSite
 from internet.adult import original_date, OrderedAdultSite, MonthlyAdultSite
 
-log = create_logger(__name__)
+log = common.get_logger()
 
 
 class KingenWeb(BaseSite):

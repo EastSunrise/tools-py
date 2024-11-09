@@ -13,7 +13,7 @@ from PyPDF2.generic import Destination, IndirectObject, NullObject
 
 import common
 
-log = common.create_logger(__name__)
+log = common.get_logger()
 
 
 def self(x):

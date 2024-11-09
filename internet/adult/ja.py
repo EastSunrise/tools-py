@@ -24,11 +24,11 @@ from urllib3.util import parse_url
 from werkzeug.exceptions import NotFound, BadGateway
 
 import common
-from common import OptionalValue, create_logger, YearMonth
+from common import OptionalValue, YearMonth
 from internet import normalize_str, DuplicateError
 from internet.adult import ActorSite, AdultSite, OrderedAdultSite, MonthlyAdultSite, export
 
-log = create_logger(__name__)
+log = common.get_logger()
 
 ja_alphabet = ['a', 'k', 's', 't', 'n', 'h', 'm', 'y', 'r', 'w']
 ja_syllabary = [

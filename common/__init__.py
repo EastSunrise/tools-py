@@ -8,38 +8,50 @@ Common functions.
 import logging
 import os.path
 import re
+import sys
 from datetime import date, datetime
 from json import JSONEncoder
 from typing import Iterable, Callable, Dict, Any, List
 
-formatter = logging.Formatter(fmt='%(asctime)s %(levelname)s %(threadName)s [%(filename)s:%(lineno)d]: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+formatter = logging.Formatter(fmt='%(asctime)s %(levelname)s %(threadName)s [%(filename)s:%(lineno)d]: %(message)s',
+                              datefmt='%Y-%m-%d %H:%M:%S')
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(formatter)
 
 
-def create_logger(name: str, level=logging.DEBUG, console=True, file_dir='logs'):
-    logger = logging.getLogger(name)
+def get_executable_folder(file=__file__):
+    if getattr(sys, 'frozen', False):
+        # Running in bundled mode (PyInstaller)
+        return os.path.dirname(sys.executable)
+    else:
+        # Running in normal Python script mode
+        return os.path.dirname(os.path.abspath(file))
+
+
+def get_logger(level=logging.DEBUG, console=True, file_dir=None):
+    logger = logging.getLogger()
     logger.setLevel(level)
     if console:
         logger.addHandler(console_handler)
-    if file_dir:
-        if not os.path.isdir(file_dir):
-            os.makedirs(file_dir, exist_ok=True)
-        fh_debug = logging.FileHandler(os.path.join(file_dir, 'debug.log'), encoding='UTF-8')
-        fh_debug.setFormatter(formatter)
-        fh_debug.addFilter(lambda r: r.levelno == logging.DEBUG)
-        logger.addHandler(fh_debug)
+    if file_dir is None:
+        file_dir = os.path.join(get_executable_folder(), 'logs')
+    if not os.path.isdir(file_dir):
+        os.makedirs(file_dir, exist_ok=True)
+    fh_debug = logging.FileHandler(os.path.join(file_dir, 'debug.log'), encoding='UTF-8')
+    fh_debug.setFormatter(formatter)
+    fh_debug.addFilter(lambda r: r.levelno == logging.DEBUG)
+    logger.addHandler(fh_debug)
 
-        fh_info = logging.FileHandler(os.path.join(file_dir, 'info.log'), encoding='UTF-8')
-        fh_info.setFormatter(formatter)
-        fh_info.addFilter(lambda r: r.levelno == logging.INFO)
-        logger.addHandler(fh_info)
+    fh_info = logging.FileHandler(os.path.join(file_dir, 'info.log'), encoding='UTF-8')
+    fh_info.setFormatter(formatter)
+    fh_info.addFilter(lambda r: r.levelno == logging.INFO)
+    logger.addHandler(fh_info)
 
-        fh_warn = logging.FileHandler(os.path.join(file_dir, 'warning.log'), encoding='UTF-8')
-        fh_warn.setFormatter(formatter)
-        fh_warn.setLevel(logging.WARNING)
-        logger.addHandler(fh_warn)
+    fh_warn = logging.FileHandler(os.path.join(file_dir, 'warning.log'), encoding='UTF-8')
+    fh_warn.setFormatter(formatter)
+    fh_warn.setLevel(logging.WARNING)
+    logger.addHandler(fh_warn)
     return logger
 
 

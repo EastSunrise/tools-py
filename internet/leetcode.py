@@ -17,7 +17,7 @@ from jinja2 import FileSystemLoader, Environment
 import common
 from internet import BaseSite
 
-log = common.create_logger(__name__)
+log = common.get_logger()
 
 
 class LeetCode(BaseSite):

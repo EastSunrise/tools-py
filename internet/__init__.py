@@ -19,7 +19,7 @@ from urllib3.util import parse_url
 
 import common
 
-log = common.create_logger(__name__)
+log = common.get_logger()
 base_headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
                   'Chrome/80.0.3987.132 Safari/537.36'
@@ -82,31 +82,31 @@ class BaseSite:
             return None
         return json.loads(json.dumps(data, ensure_ascii=False, cls=common.ComplexEncoder))
 
-    def post_json(self, path, query=None, data=None, json_data=None, cache=False, retry=False):
-        resp = self._do_request_cacheable(path, 'POST', query, data, json_data, cache, retry)
+    def post_json(self, path, query=None, cache=False, retry=False, **kwargs):
+        resp = self._do_request_cacheable(path, 'POST', query, cache, retry, **kwargs)
         resp.raise_for_status()
         return json.loads(resp.content.decode(self.__encoding, errors='ignore'))
 
-    def put_json(self, path, query=None, data=None, json_data=None, cache=False, retry=False):
-        resp = self._do_request_cacheable(path, 'PUT', query, data, json_data, cache, retry)
+    def put_json(self, path, query=None, cache=False, retry=False, **kwargs):
+        resp = self._do_request_cacheable(path, 'PUT', query, cache, retry, **kwargs)
         resp.raise_for_status()
         return json.loads(resp.content.decode(self.__encoding, errors='ignore'))
 
-    def _do_request_cacheable(self, path, method='POST', query=None, data=None, json_data=None, cache=False, retry=False) -> Response:
+    def _do_request_cacheable(self, path, method='POST', query=None, cache=False, retry=False, **kwargs) -> Response:
         if cache:
             op = 'cache' if not retry else 'put'
             filepath = self.cache_dir + path
             if query:
                 filepath += '?' + urlencode(query)
-            return run_cacheable(filepath, lambda: self._do_request(path, method, query, data, json_data), op)
-        return self._do_request(path, method, query, data, json_data)
+            return run_cacheable(filepath, lambda: self._do_request(path, method, query, **kwargs), op)
+        return self._do_request(path, method, query, **kwargs)
 
-    def _do_request(self, path, method='POST', query=None, data=None, json_data=None) -> Response:
+    def _do_request(self, path, method='POST', query=None, **kwargs) -> Response:
         if query and len(query) > 0:
             log.debug('Requesting for %s%s?%s', self.root_uri, path, '&'.join(k + '=' + str(v) for k, v in query.items()))
         else:
             log.debug('Requesting for %s%s', self.root_uri, path)
-        return self.__session.request(method, self.root_uri + path, params=query, headers=self.__headers, data=data, json=json_data)
+        return self.__session.request(method, self.root_uri + path, params=query, headers=self.__headers, **kwargs)
 
 
 def run_cacheable(filepath, do_func, op='cache'):

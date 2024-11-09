@@ -14,12 +14,11 @@ from urllib.parse import urljoin
 from werkzeug.exceptions import NotFound
 
 import common
-from common import create_logger
 from internet import base_headers
 from internet.adult import AdultSite, ActorSite, export
 from internet.adult.ja import read_kwargs
 
-log = create_logger(__name__)
+log = common.get_logger()
 
 
 class HuiAV(AdultSite, ActorSite):
