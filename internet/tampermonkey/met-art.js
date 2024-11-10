@@ -1,15 +1,16 @@
 // ==UserScript==
-// @name         Straplez Plugin
+// @name         MetArt Group Plugin
 // @namespace    http://tampermonkey.net/
 // @version      0.1
 // @description  Export work into database
 // @author       Kingen
 // @require      https://cdn.staticfile.org/jquery/3.4.1/jquery.min.js
 // @match        https://www.straplez.com/model/*/movie/**
+// @match        https://www.metartx.com/model/*/movie/**
 // ==/UserScript==
 
 const api = '/study/api/v1';
-const imgRegex = /url\(&quot;(.*?)&quot;\)/;
+const imgRegex = /url\((&quot;|")(.*?)(&quot;|")\);/;
 
 const parseWork = () => {
     const info = {}
@@ -22,11 +23,12 @@ const parseWork = () => {
     if (img.length > 0) {
         cover2 = img.attr('src');
     } else {
-        const matches = $('.jw-time-thumb').attr('style').match(imgRegex);
-        if (matches && matches[1]) {
-            cover2 = matches[1];
+        const matches = $('div.jw-preview').attr('style').match(imgRegex);
+        if (matches && matches[2]) {
+            cover2 = matches[2];
         } else {
-            console.log('Cannot find image URL')
+            alert('封面获取失败！')
+            return;
         }
     }
 
@@ -35,8 +37,8 @@ const parseWork = () => {
         'cover': $('.movie-details .panel-content img').attr('src'),
         'cover2': cover2,
         'duration': parseInt($('meta[property="og:video:duration"]').attr('content')),
-        'releaseDate': $('meta[property="og:video:release_date"]').text().trim().split('T')[0],
-        'producer': 'Straplez',
+        'releaseDate': $('meta[property="og:video:release_date"]').attr('content').split('T')[0],
+        'producer': $('.logo img').attr('alt'),
         'source': window.location.href,
         'actors': info['Cast:'].find('a').map((i, ele) => $(ele).text().trim()).get(),
         'directors': info['Director:'].find('a').map((i, ele) => $(ele).text().trim()).get(),
@@ -83,7 +85,9 @@ const putWork = work => {
 
 const exportWork = () => {
     const work = parseWork();
-    putWork(work)
+    if (work) {
+        putWork(work)
+    }
 }
 
 $(function () {

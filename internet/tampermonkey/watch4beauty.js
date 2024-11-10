@@ -17,7 +17,7 @@ const parseWork = () => {
         alert('请先打开作品详情页')
         return
     }
-    const cover2 = $('#gallcover .loadable-data img').attr('src')
+    const cover = $('#gallcover .loadable-data img').attr('src')
     const match = $('.issue-detail > .link').text().trim().match(releaseRegex);
     const year = match[1];
     const month = match[2].padStart(2, '0');
@@ -25,8 +25,8 @@ const parseWork = () => {
 
     return {
         'title': document.title.substring(5),
-        'cover': cover2.replace('cover-wide-2560.', 'cover-960.'),
-        'cover2': cover2,
+        'cover': cover.includes('wide') ? cover.replace('cover-wide-2560.', 'cover-960.') : cover,
+        'cover2': cover.includes('wide') ? cover : $('video').attr('poster'),
         'duration': $('.issue-detail .hero:first').text().trim().match(durationRegex)[1],
         'releaseDate': `${year}-${month}-${day}`,
         'producer': 'Watch4beauty',
