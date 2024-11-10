@@ -20,7 +20,7 @@ const parseWork = () => {
         'cover': info['image'],
         'duration': info['duration'],
         'releaseDate': info['datePublished'],
-        'description': $('span[property="v:summary"]').text().trim(),
+        'description': $('span[property="v:summary"]').text().trim().replace(/\n\s+/g, '\n'),
         'source': 'https://movie.douban.com' + info['url'],
         'actors': $('meta[property="video:actor"]').map((i, ele) => $(ele).attr('content').trim()).get(),
         'directors': $('meta[property="video:director"]').map((i, ele) => $(ele).attr('content').trim()).get(),

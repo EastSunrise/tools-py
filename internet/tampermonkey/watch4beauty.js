@@ -18,16 +18,17 @@ const parseWork = () => {
         return
     }
     const cover = $('#gallcover .loadable-data img').attr('src')
-    const match = $('.issue-detail > .link').text().trim().match(releaseRegex);
-    const year = match[1];
-    const month = match[2].padStart(2, '0');
-    const day = match[3].padStart(2, '0');
+    const dateMatch = $('.issue-detail > .link').text().trim().match(releaseRegex);
+    const year = dateMatch[1];
+    const month = dateMatch[2].padStart(2, '0');
+    const day = dateMatch[3].padStart(2, '0');
+    const durationMatch = $('.issue-detail .hero:first').text().trim().match(durationRegex)
 
     return {
         'title': document.title.substring(5),
         'cover': cover.includes('wide') ? cover.replace('cover-wide-2560.', 'cover-960.') : cover,
         'cover2': cover.includes('wide') ? cover : $('video').attr('poster'),
-        'duration': $('.issue-detail .hero:first').text().trim().match(durationRegex)[1],
+        'duration': durationMatch ? durationMatch[1] : null,
         'releaseDate': `${year}-${month}-${day}`,
         'producer': 'Watch4beauty',
         'source': window.location.href,

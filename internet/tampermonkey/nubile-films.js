@@ -11,10 +11,17 @@
 const api = '/study/api/v1';
 
 const parseWork = () => {
-    const date = new Date($('span.date').text().trim());
+    const date = new Date($('.content-pane-title span.date').text().trim());
     const year = date.getFullYear();
     const month = (date.getMonth() + 1).toString().padStart(2, '0');
     const day = date.getDate().toString().padStart(2, '0');
+    const desc = $('.content-pane-description')
+    let description;
+    if ($(desc).find('p').length > 0) {
+        description = $(desc).find('p').map((i, ele) => $(ele).text().trim()).get().join('\n');
+    } else {
+        description = desc.text().trim();
+    }
 
     return {
         'title': $('.content-pane-title h2').text().trim(),
@@ -22,8 +29,8 @@ const parseWork = () => {
         'cover2': $('video').attr('poster'),
         'duration': null,
         'releaseDate': `${year}-${month}-${day}`,
-        'producer': 'Nubile Films',
-        'description': $('.content-pane-description p').map((i, ele) => $(ele).text().trim()).get().join('\n'),
+        'producer': $('meta[property="og:site_name"]').attr('content'),
+        'description': description,
         'images': null,
         'trailer': $('video').attr('src'),
         'source': window.location.href,
