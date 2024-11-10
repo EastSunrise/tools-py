@@ -28,14 +28,14 @@ class KingenWeb(BaseSite):
 
     def import_actor(self, actor: dict) -> Response:
         return self._do_request_cacheable(self.__api_prefix + f'/actors/{actor["name"]}', 'PUT', query={'merge': 1},
-                                          json_data=self.format_json(actor))
+                                          json=self.format_json(actor))
 
     def import_work(self, work: dict):
         return self._do_request_cacheable(self.__api_prefix + f'/works/{work["serialNumber"]}', 'PUT', query={'merge': 1},
-                                          json_data=self.format_json(work))
+                                          json=self.format_json(work))
 
     def import_resources(self, sn: str, resources: List[dict]):
-        return self._do_request_cacheable(self.__api_prefix + f'/work/{sn}/resources', 'PUT', json_data=resources)
+        return self._do_request_cacheable(self.__api_prefix + f'/work/{sn}/resources', 'PUT', json=resources)
 
 
 def export_data(data_file, export_func):

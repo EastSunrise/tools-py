@@ -13,12 +13,9 @@ from urllib.parse import urljoin
 
 from werkzeug.exceptions import NotFound
 
-import common
 from internet import base_headers
 from internet.adult import AdultSite, ActorSite, export
 from internet.adult.ja import read_kwargs
-
-log = common.get_logger()
 
 
 class HuiAV(AdultSite, ActorSite):
@@ -141,7 +138,6 @@ def export_resources(api, work):
 
 if __name__ == '__main__':
     args = read_kwargs()
-    common.console_handler.setLevel(args.log_level.upper())
     kingen_api = export.KingenWeb(f'http://{args.host}:{args.port}')
 
     site = HuiAV()

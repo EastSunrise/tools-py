@@ -150,7 +150,7 @@ class BaseWillProducer(OrderedAdultSite):
             'directors': [y for y in [x.text.strip() for x in info.get('監督').select('.item')] if y != '---'],
             'duration': OptionalValue(info.pop('収録時間').select_one('p')).map(lambda x: x.contents[-1].text.strip()).get(),
             'trailer': OptionalValue(work_page.select_one('.p-workPage__side video')).map(lambda x: x['src']).get(),
-            'source': self.root_uri + f'/works/detail/{wid}'
+            'source': [self.root_uri + f'/works/detail/{wid}', work_page.select('.p-workPage__side a')[-1]['href']]
         }
 
     def refactor_work(self, work: dict) -> None:
@@ -445,6 +445,11 @@ class FalenoProducer(AdultSite):
     def get_work_detail(self, wid) -> dict:
         soup = self.get_soup(f'{self.__prefix}/works/{wid}/', cache=True)
         infos = soup.select('.box_works01_list p')
+        sources = []
+        for tag in soup.select('#bottom-bar a'):
+            if tag.text.strip() == 'FANZAで購入' and 'href' in tag:
+                sources.append(tag['href'])
+                break
         return {
             'wid': wid,
             'title': normalize_str(soup.select_one('h1').text.strip()),
@@ -456,7 +461,7 @@ class FalenoProducer(AdultSite):
             'duration': OptionalValue(infos[1].text.strip()).not_blank().get(),
             'releaseDate': datetime.strptime(
                 OptionalValue(infos[-1].text.strip('-')).not_blank().get(infos[-2].text.strip()), '%Y/%m/%d').date(),
-            'source': self.root_uri + self.__prefix + f'/works/{wid}/'
+            'source': [self.root_uri + self.__prefix + f'/works/{wid}/'] + sources
         }
 
     def refactor_work(self, work: dict) -> None:
@@ -1114,7 +1119,7 @@ class AliceJapan(MonthlyAdultSite, JaActorSite):
 jav_producers = [
     FalenoProducer('https://faleno.jp/top/', 'Faleno', prefix='/top'),
     FalenoProducer('https://dahlia-av.jp/', 'DAHLIA'),
-    SODPrime(),
+    # SODPrime(),
     Prestige(),
     Venus(),
     Indies(),
@@ -1154,7 +1159,6 @@ def read_kwargs() -> argparse.Namespace:
     parser.add_argument('-h', '--host', default='127.0.0.1', help='specify the host name or IP address')
     parser.add_argument('-p', '--port', type=int, default=80, help='specify the port number')
     parser.add_argument('-d', '--data-dir', default='', help='specify the directory of data')
-    parser.add_argument('-l', '--log-level', default='info', help='specify the log level of console')
     parser.add_argument('-e', '--excluded', default='', help='specify excluded producers, separated by comma')
     parser.add_argument('--help', action='help')
     return parser.parse_args()
@@ -1163,7 +1167,6 @@ def read_kwargs() -> argparse.Namespace:
 # pyinstaller -n export-ja -F ja.py
 if __name__ == '__main__':
     args = read_kwargs()
-    common.console_handler.setLevel(args.log_level.upper())
     kingen_api = export.KingenWeb(f'http://{args.host}:{args.port}')
     dirpath = args.data_dir
     if dirpath is None or dirpath.strip() == '':

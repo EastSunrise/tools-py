@@ -72,7 +72,7 @@ class LeetCode(BaseSite):
             variables = {"categorySlug": "all-code-essentials", "skip": skip, "limit": limit, "filters": {}}
             params = {"query": query, "variables": variables}
             page = {'skip': skip, 'limit': limit}
-            result = self.post_json('/graphql/', query=page, json_data=params)
+            result = self.post_json('/graphql/', query=page, json=params)
             data = result['data']['problemsetQuestionList']
             questions.extend(data['questions'])
             skip += limit
@@ -119,7 +119,7 @@ class LeetCode(BaseSite):
         """
         variables = {"titleSlug": slug}
         params = {"query": query, "variables": variables}
-        return self.post_json('/graphql/', query=variables, json_data=params, cache=True)['data']['question']
+        return self.post_json('/graphql/', query=variables, json=params, cache=True)['data']['question']
 
     def get_today_question(self):
         query = """
@@ -162,7 +162,7 @@ class LeetCode(BaseSite):
         """
         variables = {}
         params = {"query": query, "variables": variables}
-        return self.post_json('/graphql/', query=variables, json_data=params)['data']['todayRecord'][0]
+        return self.post_json('/graphql/', query=variables, json=params)['data']['todayRecord'][0]
 
 
 leetcode = LeetCode()
@@ -344,14 +344,12 @@ def read_kwargs() -> argparse.Namespace:
     parser.add_argument('-d', '--dest-dir', default='src/main/java', help='specify the directory of problems')
     parser.add_argument('-p', '--package', default='leetcode', help='specify the pacakge of problems')
     parser.add_argument('-r', '--replaced', action='store_true', help='enable replaced mode')
-    parser.add_argument('-l', '--log-level', default='debug', help='specify the log level of console')
     return parser.parse_args()
 
 
 # pyinstaller -n leetcode -i ./assets/leetcode.ico --add-data templates;templates -F leetcode.py
 if __name__ == '__main__':
     args = read_kwargs()
-    common.console_handler.setLevel(args.log_level.upper())
     title_slug = args.slug
     if not title_slug or title_slug.strip() == '':
         title_slug = leetcode.get_today_question()['question']['titleSlug']
