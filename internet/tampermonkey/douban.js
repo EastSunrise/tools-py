@@ -11,20 +11,24 @@
 
 const api = '/study/api/v1';
 
-
 const parseWork = () => {
     const script = $('script[type="application/ld+json"]')
     const info = JSON.parse(script.text().replace(/\n/g, ''))
     return {
         'title': $('title').text().trim().slice(0, -5),
-        'cover': info['image'],
+        'cover': info['image'].replace('s_ratio_poster', 'raw').replace('.webp', '.jpg'),
+        'cover2': null,
         'duration': info['duration'],
         'releaseDate': info['datePublished'],
+        'producer': null,
         'description': $('span[property="v:summary"]').text().trim().replace(/\n\s+/g, '\n'),
+        'images': null,
+        'trailer': null,
         'source': 'https://movie.douban.com' + info['url'],
         'actors': $('meta[property="video:actor"]').map((i, ele) => $(ele).attr('content').trim()).get(),
         'directors': $('meta[property="video:director"]').map((i, ele) => $(ele).attr('content').trim()).get(),
         'genres': info['genre'],
+        'series': null
     }
 }
 
@@ -71,7 +75,7 @@ const exportWork = () => {
 }
 
 $(function () {
-    const btn = $('<button type="button" style="margin-left: 30px; background-color: orange">导出</button>');
+    const btn = $('<span style="margin-left: 30px; color: orange; cursor: pointer">导出</span>');
     btn.on('click', () => exportWork());
     $('#content h1').append(btn);
 })

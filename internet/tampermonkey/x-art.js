@@ -10,18 +10,22 @@
 
 const api = '/study/api/v1';
 
-const parseWork = () => {
-    const date = new Date($('.info > h2:first').text().trim());
+// Formats English date string to YYYY-MM-DD
+const formatDate = (str) => {
+    const date = new Date(str);
     const year = date.getFullYear();
     const month = (date.getMonth() + 1).toString().padStart(2, '0');
     const day = date.getDate().toString().padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
 
+const parseWork = () => {
     return {
         'title': $('.info.row h1').text().trim(),
         'cover': null,
         'cover2': $('#thumb').attr('value'),
         'duration': null,
-        'releaseDate': `${year}-${month}-${day}`,
+        'releaseDate': formatDate($('.info > h2:first').text().trim()),
         'producer': 'X-Art',
         'description': $('.info p').text().trim(),
         'images': $('.gallery-block img').map((i, ele) => $(ele).attr('src')).get(),

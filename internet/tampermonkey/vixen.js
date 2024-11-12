@@ -1,48 +1,44 @@
 // ==UserScript==
-// @name         MetArt Group Plugin
+// @name         VIXEN Plugin
 // @namespace    http://tampermonkey.net/
 // @version      0.1
 // @description  Export work into database
 // @author       Kingen
 // @require      https://cdn.staticfile.org/jquery/3.4.1/jquery.min.js
-// @match        https://www.straplez.com/model/*/movie/**
-// @match        https://www.metartx.com/model/*/movie/**
+// @match        https://www.vixen.com/videos/**
 // ==/UserScript==
 
 const api = '/study/api/v1';
-const imgRegex = /url\((&quot;|")(.*?)(&quot;|")\);/;
+
+// Formats English date string to YYYY-MM-DD
+const formatDate = (str) => {
+    const date = new Date(str);
+    const year = date.getFullYear();
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const day = date.getDate().toString().padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
 
 const parseWork = () => {
-    const info = {}
-    $('ul[data-testid="movie-data"] li').each(function () {
-        const key = $(this).find('span:first').text().trim();
-        info[key] = $(this).find('span:last');
-    });
-    const img = $('.cover-image');
-    let cover2 = null;
-    if (img.length > 0) {
-        cover2 = img.attr('src');
-    } else {
-        const matches = $('div.jw-preview').attr('style').match(imgRegex);
-        if (matches && matches[2]) {
-            cover2 = matches[2];
-        } else {
-            alert('封面获取失败！')
-            return;
-        }
-    }
+    const props = JSON.parse($('script#__NEXT_DATA__').text())['props']['pageProps']
+    const posters = [...props['video']['images']['poster']]
+    const maxPoster = posters.reduce((max, obj) => (obj['width'] > max['width'] ? obj : max), posters[0])
 
     return {
-        'title': $('ol.container li:last').text().trim(),
-        'cover': $('.movie-details .panel-content img').attr('src'),
-        'cover2': cover2,
-        'duration': parseInt($('meta[property="og:video:duration"]').attr('content')),
-        'releaseDate': $('meta[property="og:video:release_date"]').attr('content').split('T')[0], // UTC-08:00
-        'producer': $('.logo img').attr('alt'),
+        'title': props['title'],
+        'cover': props['structuredData']['thumbnailUrl'],
+        'cover2': maxPoster['highdpi'] ? maxPoster['highdpi']['double'] : maxPoster['src'],
+        'duration': props['structuredData']['duration'],
+        'releaseDate': formatDate($('[title="Release date"] span').text().trim()),
+        'producer': 'VIXEN',
+        'description': props['description'],
+        'images': props['galleryImages'].map(img => img['src']),
+        'trailer': null,
         'source': window.location.href,
-        'actors': info['Cast:'].find('a').map((i, ele) => $(ele).text().trim()).get(),
-        'directors': info['Director:'].find('a').map((i, ele) => $(ele).text().trim()).get(),
-        'genres': $('meta[property="og:video:tag"]').map((i, ele) => $(ele).attr('content')).get(),
+        'actors': props['video']['modelsSlugged'].map(x => x['name']),
+        'directors': props['video']['directors'].map(x => x['name']),
+        'genres': null,
+        'series': null
     }
 }
 
@@ -91,7 +87,7 @@ const exportWork = () => {
 }
 
 $(function () {
-    const btn = $('<div class="btn btn-primary join-btn" style="position: fixed; right: 50px">导出</div>');
+    const btn = $('<span style="cursor: pointer; font-size: 2rem; margin-left: 20px">导出</span>');
     btn.on('click', () => exportWork());
-    $('.navbar .va-m > div').append(btn);
+    $('nav').append(btn);
 })

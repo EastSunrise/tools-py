@@ -11,12 +11,14 @@
 const api = '/study/api/v1';
 const durationRegex = /(\d+)\s*min/i;
 
-const formatDate = date => {
+// Formats English date string to YYYY-MM-DD
+const formatDate = (str) => {
+    const date = new Date(str);
     const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const day = date.getDate().toString().padStart(2, '0');
     return `${year}-${month}-${day}`;
-};
+}
 
 const parseWork = () => {
     const wrapper = $('div.video-detail')
@@ -37,13 +39,12 @@ const parseWork = () => {
         throw 'Unmatched duration';
     }
     const duration = parseInt(match[1], 10) * 60;
-    const releaseDate = formatDate(new Date(texts[2]));
 
     return {
         'title': wrapper.find('h1').text().trim(),
         'cover2': video.attr('poster'),
         'duration': duration,
-        'releaseDate': releaseDate,
+        'releaseDate': formatDate(texts[2]),
         'producer': 'Virtual Taboo',
         'description': $('meta[name="twitter:description"]').attr('content'),
         'trailer': video.attr('src'),

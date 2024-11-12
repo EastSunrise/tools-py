@@ -10,11 +10,16 @@
 
 const api = '/study/api/v1';
 
-const parseWork = () => {
-    const date = new Date($('.content-pane-title span.date').text().trim());
+// Formats English date string to YYYY-MM-DD
+const formatDate = (str) => {
+    const date = new Date(str);
     const year = date.getFullYear();
     const month = (date.getMonth() + 1).toString().padStart(2, '0');
     const day = date.getDate().toString().padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+const parseWork = () => {
     const desc = $('.content-pane-description')
     let description;
     if ($(desc).find('p').length > 0) {
@@ -28,7 +33,7 @@ const parseWork = () => {
         'cover': null,
         'cover2': $('video').attr('poster'),
         'duration': null,
-        'releaseDate': `${year}-${month}-${day}`,
+        'releaseDate': formatDate($('.content-pane-title span.date').text().trim()),
         'producer': $('meta[property="og:site_name"]').attr('content'),
         'description': description,
         'images': null,
