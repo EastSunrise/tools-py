@@ -1,43 +1,35 @@
 // ==UserScript==
-// @name         Watch4beauty Plugin
+// @name         Wow Network Plugin
 // @namespace    http://tampermonkey.net/
 // @version      0.1
 // @description  Export work into database
 // @author       Kingen
 // @require      https://cdn.staticfile.org/jquery/3.4.1/jquery.min.js
-// @match        https://www.watch4beauty.com/updates/**
+// @match        https://venus.allfinegirls.com/girl/**
+// @match        https://venus.wowgirls.com/girl/**
 // ==/UserScript==
 
 const api = '/study/api/v1';
-const durationRegex = /((\d{1,2}:)?\d{1,2}:\d{1,2}) FILM/;
-const releaseRegex = /Published (\d{4})\.(\d{1,2})\.(\d{1,2})/;
 
-const parseWork = () => {
-    if ($('#lightbox-info').length === 0) {
-        alert('请先打开作品详情页')
-        return
-    }
-    const cover = $('#gallcover .loadable-data img').attr('src')
-    const dateMatch = $('.issue-detail > .link').text().trim().match(releaseRegex);
-    const year = dateMatch[1];
-    const month = dateMatch[2].padStart(2, '0');
-    const day = dateMatch[3].padStart(2, '0');
-    const durationMatch = $('.issue-detail .hero:first').text().trim().match(durationRegex)
+const formatURL = url => {
+    return new URL(url, window.location.href).href
+}
 
+const parseWork = ele => {
     return {
-        'title': document.title.substring(5),
-        'cover': cover.includes('wide') ? cover.replace('cover-wide-2560.', 'cover-960.') : cover,
-        'cover2': cover.includes('wide') ? cover : $('video').attr('poster'),
-        'duration': durationMatch ? durationMatch[1] : null,
-        'releaseDate': `${year}-${month}-${day}`,
-        'producer': 'Watch4beauty',
+        'title': $(ele).find('a.title').text().trim(),
+        'cover': null,
+        'cover2': $(ele).find('.thumb img').attr('src'),
+        'duration': null,
+        'releaseDate': null,
+        'producer': null,
         'description': null,
         'images': null,
         'trailer': null,
-        'source': window.location.href,
-        'actors': $('#lightbox-info p:eq(2) a').map((i, ele) => $(ele).text().trim()).get(),
+        'source': [window.location.href, formatURL($(ele).find('a.title').attr('href'))],
+        'actors': $(ele).find('.models a').map((i, ele) => $(ele).text().trim()).get(),
         'directors': null,
-        'genres': $('a.tag').map((i, ele) => $(ele).text().trim()).get(),
+        'genres': $(ele).find('.genres a').map((i, ele) => $(ele).text().trim()).get(),
         'series': null
     }
 }
@@ -79,15 +71,21 @@ const putWork = work => {
     })
 }
 
-const exportWork = () => {
-    const work = parseWork();
+const exportWork = (ele) => {
+    const work = parseWork(ele);
     if (work) {
         putWork(work)
     }
 }
 
-$(async function () {
-    const btn = $('<span style="position: fixed; top: 120px; right: 40px; cursor: pointer; color: orange; z-index: 999">导出</span>');
-    btn.on('click', () => exportWork());
-    $('#root').append(btn);
+$(function () {
+    setInterval(() => {
+        $('.cf_content_list div').each((i, ele) => {
+            if ($(ele).find('#my-export').length === 0) {
+                const btn = $('<button id="my-export" style="position: absolute; top: 10px; right: 10px; color: orange; z-index: 9999">导出</button>');
+                $(ele).append(btn);
+                btn.on('click', () => exportWork($(ele)));
+            }
+        })
+    }, 500)
 })

@@ -55,15 +55,16 @@ const parseDetail = () => {
     }
     return {
         'title': $('h1#title').text().trim(),
-        'releaseDate': (info['発売日：'] || info['商品発売日：']).text().trim().replace(/\//g, "-"),
+        'serialNumber': formatSn(info['品番：'].text().trim()),
         'duration': info['収録時間：'].text().trim().trim(),
+        'releaseDate': (info['発売日：'] || info['商品発売日：']).text().trim().replace(/\//g, "-"),
+        'producer': info['メーカー：'].text().trim(),
+        'description': parseDescription(),
+        'source': window.location.href,
         'actors': info['出演者：'].find('a').map((i, e) => $(e).text().trim()).toArray(),
         'directors': info['監督：'].find('a').map((i, e) => $(e).text().trim()).toArray(),
-        'series': info['シリーズ：'].find('a').map((i, e) => $(e).text().trim()).toArray(),
-        'producer': info['メーカー：'].text().trim(),
         'genres': info['ジャンル：'].find('a').map((i, e) => $(e).text().trim()).toArray(),
-        'serialNumber': formatSn(info['品番：'].text().trim()),
-        'description': parseDescription()
+        'series': info['シリーズ：'].find('a').map((i, e) => $(e).text().trim()).toArray(),
     }
 }
 

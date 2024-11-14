@@ -21,13 +21,19 @@ const parseWork = () => {
 
     return {
         'title': $('meta[property="og:title"]').attr('content').trim(),
+        'cover': null,
         'cover2': formatURL(script.match(posterRegex)[1].replace('-1x.', '-4x.')),
         'duration': $('.player-time').text().split('/')[1].trim(),
         'releaseDate': $('.content-date').text().trim().split(':')[1].trim(),
         'producer': 'TeenDreams',
+        'description': null,
+        'images': null,
         'trailer': formatURL(script.match(srcRegex)[1]),
         'source': window.location.href,
         'actors': $('.item-name').text().trim(),
+        'directors': null,
+        'genres': null,
+        'series': null
     }
 }
 

@@ -39,10 +39,14 @@ const parseWork = () => {
         'duration': parseInt($('meta[property="og:video:duration"]').attr('content')),
         'releaseDate': $('meta[property="og:video:release_date"]').attr('content').split('T')[0], // UTC-08:00
         'producer': $('.logo img').attr('alt'),
+        'description': null,
+        'images': null,
+        'trailer': null,
         'source': window.location.href,
         'actors': info['Cast:'].find('a').map((i, ele) => $(ele).text().trim()).get(),
         'directors': info['Director:'].find('a').map((i, ele) => $(ele).text().trim()).get(),
         'genres': $('meta[property="og:video:tag"]').map((i, ele) => $(ele).attr('content')).get(),
+        'series': null
     }
 }
 

@@ -42,16 +42,19 @@ const parseWork = () => {
 
     return {
         'title': wrapper.find('h1').text().trim(),
+        'cover': null,
         'cover2': video.attr('poster'),
         'duration': duration,
         'releaseDate': formatDate(texts[2]),
         'producer': 'Virtual Taboo',
         'description': $('meta[name="twitter:description"]').attr('content'),
+        'images': wrapper.find('div.gallery-item-container a').map((i, ele) => $(ele).attr('href')).get().slice(0, -1),
         'trailer': video.attr('src'),
         'source': window.location.href,
         'actors': info.find('a').map((i, ele) => $(ele).text()).get(),
+        'directors': null,
         'genres': wrapper.find('div.tag-list a').map((i, ele) => $(ele).text()).get(),
-        'images': wrapper.find('div.gallery-item-container a').map((i, ele) => $(ele).attr('href')).get().slice(0, -1),
+        'series': null
     }
 }
 

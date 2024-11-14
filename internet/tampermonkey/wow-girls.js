@@ -16,13 +16,19 @@ const parseWork = () => {
 
     return {
         'title': $('meta[itemprop="name"]').attr('content'),
+        'cover': null,
         'cover2': $('meta[property="og:image"]').attr('content'),
         'duration': $('meta[itemprop="duration"]').attr('content'),
         'releaseDate': $('meta[itemprop="uploadDate"]').attr('content').split('T')[0],
         'producer': 'WowGirls',
+        'description': null,
+        'images': null,
         'trailer': info['sources'][0]['src'],
         'source': window.location.href,
         'actors': $('#video-actors a').map((i, ele) => $(ele).text().trim()).get(),
+        'directors': null,
+        'genres': null,
+        'series': null
     }
 }
 
