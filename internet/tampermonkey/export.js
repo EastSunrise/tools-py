@@ -6,6 +6,8 @@
 // @author       Kingen
 // @require      https://cdn.staticfile.org/jquery/3.4.1/jquery.min.js
 // @match        https://movie.douban.com/subject/**
+// @match        https://www.dmm.co.jp/mono/dvd/-/detail/=/cid=**
+// @match        https://www.dmm.co.jp/digital/videoa/-/detail/=/cid=**
 // @match        https://www.straplez.com/model/*/movie/**
 // @match        https://www.metartx.com/model/*/movie/**
 // @match        https://nubilefilms.com/video/watch/**
@@ -97,6 +99,13 @@ $(function () {
         const btn = $('<span style="margin-left: 30px; color: orange; cursor: pointer">导出</span>');
         $('#content h1').append(btn);
         btn.on('click', () => doPutWork(parseDoubanWork()));
+    }
+
+    if (host === 'www.dmm.co.jp') {
+        const btn = $('<div class="sub-nav"><a href="javascript:void(0)">导出</a></div>');
+        $('#mono-localnav').append(btn);
+        const goodType = window.location.pathname.startsWith('/mono/dvd') ? 'dvd' : 'video';
+        btn.on('click', async () => doPutWork(await parseFanzaWork(goodType)));
     }
 
     if (host === 'www.straplez.com' || host === 'www.metartx.com') {
@@ -209,6 +218,142 @@ const parseDoubanWork = () => {
         'directors': $('meta[property="video:director"]').map((i, ele) => $(ele).attr('content').trim()).get(),
         'genres': info['genre'],
         'series': null
+    }
+}
+
+
+const parseFanzaWork = async goodType => {
+    const formatSn = sn => {
+        const match = sn.match(/^\d{0,3}([a-z]{2,6})(\d{3,5})$/i);
+        if (!match) {
+            const input = prompt('Cannot format serial number. Please input manually.', sn.toUpperCase());
+            if (input === null || input === '') {
+                alert('Cannot format serial number. Cancelled!');
+                return false;
+            }
+            return input;
+        }
+        const num = parseInt(match[2]);
+        return match[1].toUpperCase() + '-' + String(num).padStart(3, '0');
+    }
+
+    const previewImage = src => {
+        if (src.match(/(p[a-z]\.)jpg/)) {
+            return src.replace(RegExp.$1, 'pl.');
+        } else if (src.match(/store/)) {
+            let path = src.split('/');
+            let pid = path[path.length - 2];
+            let reg = new RegExp(pid + '/' + pid + 'ts\-([0-9]+)\.jpg$');
+            if (src.match(reg)) {
+                return src.replace('ts-', 'tl-');
+            } else {
+                return src.replace('-', 'jp-');
+            }
+        } else if (src.match(/consumer_game/)) {
+            return src.replace('js-', '-');
+        } else if (src.match(/js-([0-9]+)\.jpg$/)) {
+            return src.replace('js-', 'jp-');
+        } else if (src.match(/ts-([0-9]+)\.jpg$/)) {
+            return src.replace('ts-', 'tl-');
+        } else if (src.match(/(-[0-9]+\.)jpg$/)) {
+            return src.replace(RegExp.$1, 'jp' + RegExp.$1);
+        } else {
+            return src.replace('-', 'jp-');
+        }
+    }
+
+    const parseImages = () => {
+        if (goodType === 'dvd') {
+            const images = $('.fn-sampleImage li.fn-sampleImage__zoom img')
+                .map((i, ele) => previewImage($(ele).data('lazy') || $(ele).attr('src'))).get();
+            return {
+                'cover': $('#package-modal-image1 img').attr('src'),
+                'cover2': $('meta[property="og:image"]').attr('content'),
+                'images': images
+            };
+        }
+        if (goodType === 'video') {
+            return {
+                'cover': $('meta[property="og:image"]').attr('content'),
+                'cover2': $('a[name="package-image"]').attr('href'),
+                'images': $('#sample-image-block a').map((i, ele) => $(ele).attr('href')).get()
+            };
+        }
+        return {}
+    }
+
+    const parseDescription = () => {
+        if (goodType === 'dvd') {
+            return $('p.mg-b20').text().trim()
+        }
+        if (goodType === 'video') {
+            return $('meta[name="description"]').attr('content').trim();
+        }
+        return null;
+    }
+
+    const fetchVideoTrailer = async url => {
+        const frame = await $.get(url);
+        const src = $(frame).attr('src');
+        const data = await $.get(src);
+        const match = data.match(/"src":\s*"([^"]+)"/);
+        return new URL(match[1], window.location.href).href;
+    }
+
+    const parseTrailer = async () => {
+        if (goodType === 'dvd') {
+            const url = $('#detail-sample-movie a').data('video-url');
+            return await fetchVideoTrailer(url);
+        }
+        if (goodType === 'video') {
+            const samplePlayRegex = /sampleplay\('(\/digital\/[^']+)'\)/
+            const simpleBtn = $('#detail-sample-movie a');
+            if (simpleBtn.length > 0) {
+                const url = simpleBtn.attr('onclick').match(samplePlayRegex)[1];
+                return await fetchVideoTrailer(url);
+            }
+
+            const vrBtn = $('#detail-sample-vr-movie a');
+            if (vrBtn.length === 0) {
+                alert('There is no trailer')
+                return null;
+            }
+            const src = vrBtn.attr('onclick').match(samplePlayRegex)[1];
+            const data = await $.get(src);
+            const match = data.match(/sampleUrl\s*=\s*"([^"]+)"/);
+            return new URL(match[1], window.location.href).href;
+        }
+        return null;
+    }
+
+    const info = {}
+    for (let tr of $('table.mg-b20').find('tr')) {
+        if ($(tr).find('td').length <= 1) {
+            continue
+        }
+        let key = $(tr).find('td:eq(0)').text().trim();
+        info[key] = $(tr).find('td:eq(1)');
+    }
+
+    const serialNumber = formatSn(info['品番：'].text().trim());
+    if (!serialNumber) {
+        return false;
+    }
+
+    return {
+        'title': $('h1#title').text().trim(),
+        'serialNumber': serialNumber,
+        'duration': info['収録時間：'].text().trim(),
+        'releaseDate': (info['発売日：'] || info['商品発売日：']).text().trim().replace(/\//g, "-"),
+        'producer': info['メーカー：'].text().trim(),
+        'description': parseDescription(),
+        'trailer': await parseTrailer(),
+        'source': window.location.href,
+        'actors': info['出演者：'].find('a').map((i, ele) => $(ele).text().trim()).get(),
+        'directors': info['監督：'].find('a').map((i, ele) => $(ele).text().trim()).get(),
+        'genres': info['ジャンル：'].find('a').map((i, ele) => $(ele).text().trim()).get(),
+        'series': info['シリーズ：'].find('a').map((i, ele) => $(ele).text().trim()).toArray(),
+        ...parseImages()
     }
 }
 
