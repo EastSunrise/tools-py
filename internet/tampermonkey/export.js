@@ -17,6 +17,10 @@
 // @match        https://www.wowgirlsblog.com/**
 // @match        https://venus.allfinegirls.com/girl/**
 // @match        https://venus.wowgirls.com/girl/**
+// @match        https://cum4k.com/video/**
+// @match        https://passion-hd.com/video/**
+// @match        https://www.iafd.com/title.rme/id=**
+// @match        https://www.kellymadison.com/models/**
 // ==/UserScript==
 
 const root = 'https://127.0.0.1';
@@ -51,7 +55,13 @@ const doPutWork = work => {
             response.json().then(
                 result => {
                     console.log('conflict', result['data']);
-                    alert('Conflicts: ' + result['data'].map(obj => obj['field']).join(', '));
+                    const conflicts = []
+                    result['data'].forEach(obj => conflicts.push(obj['field']));
+                    const msg = `Conflicts: ${conflicts.join(', ')}. Want to retry without conflicts?`
+                    if (confirm(msg)) {
+                        conflicts.forEach(key => delete work[key]);
+                        doPutWork(work);
+                    }
                 }
             )
         } else {
@@ -150,6 +160,31 @@ $(function () {
                     const btn = $('<button id="my-export" style="position: absolute; top: 10px; right: 10px; color: orange; z-index: 9999">导出</button>');
                     $(ele).append(btn);
                     btn.on('click', () => doPutWork(parseWowNetworkWork($(ele))));
+                }
+            })
+        }, 500)
+    }
+
+    if (host === 'cum4k.com' || host === 'passion-hd.com') {
+        const btn = $('<button class="btn cta" style="position: fixed; top: 18px; right: 50px; z-index: 9999">导出</button>');
+        $('body').append(btn);
+        btn.on('click', () => doPutWork(parseWhaleWork()));
+    }
+
+    if (host === 'www.iafd.com') {
+        $('#topadzone').remove();
+        const btn = $('<button class="btn btn-default" style="position: fixed; top: 8px; right: 20px; z-index: 9999">导出</button>');
+        $('body').append(btn);
+        btn.on('click', () => doPutWork(parseIafdWork()));
+    }
+
+    if (host === 'www.kellymadison.com') {
+        setInterval(() => {
+            $('div.card.episode').each((i, ele) => {
+                if ($(ele).find('#my-export').length === 0) {
+                    const btn = $('<button id="my-export" style="position: absolute; top: 10px; left: 10px; color: orange; z-index: 9999; cursor: pointer">导出</button>');
+                    $(ele).append(btn);
+                    btn.on('click', () => doPutWork(parseKellyMadisonWork($(ele))));
                 }
             })
         }, 500)
@@ -404,21 +439,85 @@ const parseWowGirlsWork = () => {
 }
 
 
-const parseWowNetworkWork = ele => {
+const parseWowNetworkWork = element => {
     return {
-        'title': $(ele).find('a.title').text().trim(),
+        'title': $(element).find('a.title').text().trim(),
         'cover': null,
-        'cover2': $(ele).find('.thumb img').attr('src'),
+        'cover2': $(element).find('.thumb img').attr('src'),
         'duration': null,
         'releaseDate': null,
         'producer': null,
         'description': null,
         'images': null,
         'trailer': null,
-        'source': [window.location.href, formatURL($(ele).find('a.title').attr('href'))],
-        'actors': $(ele).find('.models a').map((i, ele) => $(ele).text().trim()).get(),
+        'source': [window.location.href, formatURL($(element).find('a.title').attr('href'))],
+        'actors': $(element).find('.models a').map((i, ele) => $(ele).text().trim()).get(),
         'directors': null,
-        'genres': $(ele).find('.genres a').map((i, ele) => $(ele).text().trim()).get(),
+        'genres': $(element).find('.genres a').map((i, ele) => $(ele).text().trim()).get(),
+        'series': null
+    };
+}
+
+
+const parseWhaleWork = () => {
+    return {
+        'title': $('h1.leading-tight').text().trim(),
+        'cover': null,
+        'cover2': $('#player').attr('poster').split('?')[0],
+        'duration': null,
+        'releaseDate': null,
+        'producer': $('.logo:first').attr('alt'),
+        'description': $('div.items-start').text().trim(),
+        'images': $('main div.hidden.flex-row img').map((i, ele) => $(ele).attr('src').split('?')[0]).get(),
+        'trailer': $('#player source').attr('src'),
+        'source': window.location.href,
+        'actors': $('.scene-info .link-list-with-commas a').map((i, ele) => $(ele).text().trim()).get(),
+        'directors': null,
+        'genres': null,
+        'series': null
+    }
+}
+
+
+const parseIafdWork = () => {
+    const headers = $('p.bioheading').map((i, ele) => $(ele).text().trim()).get()
+    const values = $('p.biodata').map((i, ele) => $(ele).text().trim()).get()
+    const info = Object.fromEntries(headers.map((header, i) => [header, values[i]]));
+    return {
+        'title': $('.container h1').text().trim().match(/^(.+)\(\d{4}\)$/)[1].trim(),
+        'cover': null,
+        'cover2': null,
+        'duration': parseInt(info['Minutes']) * 60,
+        'releaseDate': formatDate(info['Release Date']),
+        'producer': info['Studio'],
+        'description': $('#synopsis .padded-panel li').map((i, ele) => $(ele).text().trim()).get().join('\n'),
+        'images': null,
+        'trailer': null,
+        'source': window.location.href,
+        'actors': $('.castbox a').map((i, ele) => $(ele).text().trim()).get(),
+        'directors': null,
+        'genres': null,
+        'series': null
+    }
+}
+
+
+const parseKellyMadisonWork = element => {
+    const sn = $(element).find('.card-footer-item:last').text().trim()
+    return {
+        'title': $(element).find('p.title a').text().trim(),
+        'cover': null,
+        'cover2': $(element).find('.image img').attr('src'),
+        'duration': null,
+        'releaseDate': null,
+        'producer': sn.startsWith('TF') ? 'TeenFidelity' : (sn.startsWith('PF') ? 'PornFidelity' : 'Unknown'),
+        'description': null,
+        'images': null,
+        'trailer': $(element).find('video').attr('src'),
+        'source': [window.location.href, formatURL($(element).find('p.title a').attr('href'))],
+        'actors': $(element).find('.subtitle.is-7 a').map((i, ele) => $(ele).text().trim()).get(),
+        'directors': null,
+        'genres': null,
         'series': null
     };
 }
