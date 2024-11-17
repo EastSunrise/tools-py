@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Export Work
 // @namespace    http://tampermonkey.net/
-// @version      0.0.2
+// @version      0.0.3
 // @description  Export work into database
 // @author       Kingen
 // @require      https://cdn.staticfile.org/jquery/3.4.1/jquery.min.js
@@ -26,6 +26,7 @@
 // @match        https://www.kellymadison.com/models/*
 // @match        https://www.twistys.com/scene/*
 // @match        https://www.stripzvr.com/*
+// @match        https://vrporn.com/*/
 // ==/UserScript==
 
 const root = 'https://127.0.0.1';
@@ -263,11 +264,17 @@ $(function () {
             btn.on('click', () => doPutWork(parseStripzvrWork()));
         })
     }
+
+    if (host === 'vrporn.com') {
+        const btn = $('#go-premium-new a');
+        btn.attr('href', 'javascript:void(0)');
+        btn.text('Export')
+        btn.on('click', async () => doPutWork(await parseVRPornWork()));
+    }
 })
 
 const parseDoubanWork = () => {
-    const script = $('script[type="application/ld+json"]')
-    const info = JSON.parse(script.text().replace(/\n/g, ''))
+    const info = JSON.parse($('script[type="application/ld+json"]').text().replace(/\n/g, ''))
     return {
         'title': $('title').text().trim().slice(0, -5),
         'cover': info['image'].replace('s_ratio_poster', 'raw').replace('.webp', '.jpg'),
@@ -794,7 +801,41 @@ const parseStripzvrWork = () => {
         'source': window.location.href,
         'actors': $('.elementor-widget-text-editor a [style="color: #ff3399;"]').map((i, ele) => $(ele).text().trim()).get(),
         'directors': null,
-        'genres': ['VR'],
+        'genres': null,
+        'series': null
+    }
+}
+
+
+const parseVRPornWork = async () => {
+    const info = JSON.parse($('script[type="application/ld+json"]:first').text().trim())
+    if ($('.show-more-less.active').length > 0) {
+        document.getElementById('iconDropdownArrow').click()
+    }
+    const data = await executeAfterLoad(
+        () => $('.show-more-less.active').length === 0,
+        () => {
+            return {
+                'description': $('.post-video-description p').text().trim(),
+                'images': $('.vrp-gallery-pro img').map((i, ele) => $(ele).attr('src')).get()
+            }
+        },
+    )
+
+    return {
+        'title': info['name'],
+        'cover': null,
+        'cover2': info['thumbnailUrl'],
+        'duration': info['duration'],
+        'releaseDate': info['uploadDate'].split('T')[0],
+        'producer': info['author']['name'],
+        'description': data['description'],
+        'images': data['images'],
+        'trailer': $('#dl8videoplayer source:first').attr('src'),
+        'source': window.location.href,
+        'actors': info['actor'].map(a => a['name']),
+        'directors': null,
+        'genres': $('.tag-box a').map((i, ele) => $(ele).text().trim()).get(),
         'series': null
     }
 }
