@@ -1,30 +1,31 @@
 // ==UserScript==
 // @name         Export Work
 // @namespace    http://tampermonkey.net/
-// @version      0.1
+// @version      0.0.2
 // @description  Export work into database
 // @author       Kingen
 // @require      https://cdn.staticfile.org/jquery/3.4.1/jquery.min.js
-// @match        https://movie.douban.com/subject/**
-// @match        https://www.dmm.co.jp/mono/dvd/-/detail/=/cid=**
-// @match        https://www.dmm.co.jp/digital/videoa/-/detail/=/cid=**
-// @match        https://www.straplez.com/model/*/movie/**
-// @match        https://www.metartx.com/model/*/movie/**
-// @match        https://nubilefilms.com/video/watch/**
-// @match        https://www.teendreams.com/t4/**
-// @match        https://virtualtaboo.com/videos/**
-// @match        https://www.vixen.com/videos/**
-// @match        https://www.vixen.com/performers/**
-// @match        https://www.watch4beauty.com/updates/**
-// @match        https://www.x-art.com/videos/**
-// @match        https://www.wowgirlsblog.com/**
-// @match        https://venus.allfinegirls.com/girl/**
-// @match        https://venus.wowgirls.com/girl/**
-// @match        https://cum4k.com/video/**
-// @match        https://passion-hd.com/video/**
-// @match        https://www.iafd.com/title.rme/id=**
-// @match        https://www.kellymadison.com/models/**
-// @match        https://www.twistys.com/scene/**
+// @match        https://movie.douban.com/subject/*
+// @match        https://www.dmm.co.jp/mono/dvd/-/detail/=/cid=*
+// @match        https://www.dmm.co.jp/digital/videoa/-/detail/=/cid=*
+// @match        https://www.straplez.com/model/*/movie/*
+// @match        https://www.metartx.com/model/*/movie/*
+// @match        https://nubilefilms.com/video/watch/*
+// @match        https://www.teendreams.com/t4/*
+// @match        https://virtualtaboo.com/videos/*
+// @match        https://www.vixen.com/videos/*
+// @match        https://www.vixen.com/performers/*
+// @match        https://www.watch4beauty.com/updates/*
+// @match        https://www.x-art.com/videos/*
+// @match        https://www.wowgirlsblog.com/*
+// @match        https://venus.allfinegirls.com/girl/*
+// @match        https://venus.wowgirls.com/girl/*
+// @match        https://cum4k.com/video/*
+// @match        https://passion-hd.com/video/*
+// @match        https://www.iafd.com/title.rme/id=*
+// @match        https://www.kellymadison.com/models/*
+// @match        https://www.twistys.com/scene/*
+// @match        https://www.stripzvr.com/*
 // ==/UserScript==
 
 const root = 'https://127.0.0.1';
@@ -75,6 +76,7 @@ const doPutWork = work => {
             })
         }
     }).catch(reason => {
+        console.log('exception to save', reason);
         alert(reason)
     })
 }
@@ -242,7 +244,6 @@ $(function () {
             () => $('nav [href="/joinf"]').length > 0,
             () => {
                 const joinBtn = $('nav [href="/joinf"]').parent();
-                console.log(joinBtn)
                 const exportBtn = joinBtn.clone();
                 exportBtn.remove('id');
                 exportBtn.find('a').attr('href', 'javascript:void(0)');
@@ -251,6 +252,16 @@ $(function () {
                 exportBtn.on('click', () => doPutWork(parseTwistysWork()));
             }, 10000
         ).then(_ => _);
+    }
+
+    if (host === 'www.stripzvr.com' && window.location.pathname.split('/').length > 3) {
+        $('.elementor-inner-section .elementor-container').each((i, section) => {
+            const btn = $(section).find('.elementor-column:last').clone()
+            btn.find('a').attr('href', 'javascript:void(0)');
+            btn.find('a').text('Export')
+            $(section).append(btn);
+            btn.on('click', () => doPutWork(parseStripzvrWork()));
+        })
     }
 })
 
@@ -443,7 +454,7 @@ const parseMetArtWork = async () => {
         'cover': $('.movie-details .panel-content img').attr('src'),
         'cover2': cover2,
         'duration': parseInt($('meta[property="og:video:duration"]').attr('content')),
-        'releaseDate': $('meta[property="og:video:release_date"]').attr('content').split('T')[0], // UTC-08:00
+        'releaseDate': formatDate(info['Released:'].text().trim()),
         'producer': $('.logo img').attr('alt'),
         'description': description,
         'images': null,
@@ -757,6 +768,33 @@ const parseTwistysWork = () => {
         'actors': $('h2.bUcZjY a').map((i, ele) => $(ele).text().trim()).get(),
         'directors': null,
         'genres': $('div.hBUrvM a').map((i, ele) => $(ele).text().trim()).get(),
+        'series': null
+    }
+}
+
+
+const parseStripzvrWork = () => {
+    const data = JSON.parse($('script[type="application/ld+json"]').text().trim())
+    const graphs = Object.fromEntries(data['@graph'].map(g => [g['@type'], g]))
+    const webpage = graphs['WebPage']
+    const imgRegex = /^background-image: url\('([^']+)'\)$/
+    const images = $('.swiper-wrapper .swiper-slide:not(.swiper-slide-duplicate) .elementor-carousel-image')
+        .map((i, ele) => $(ele).attr('style').match(imgRegex)[1]).get()
+
+    return {
+        'title': webpage['name'].split('featuring')[0].trim(),
+        'cover': null,
+        'cover2': webpage['thumbnailUrl'],
+        'duration': null,
+        'releaseDate': webpage['datePublished'].split('T')[0],
+        'producer': 'StripzVR',
+        'description': webpage['description'],
+        'images': images,
+        'trailer': $('#elementor-tab-content-8441 a:first').attr('href'),
+        'source': window.location.href,
+        'actors': $('.elementor-widget-text-editor a [style="color: #ff3399;"]').map((i, ele) => $(ele).text().trim()).get(),
+        'directors': null,
+        'genres': ['VR'],
         'series': null
     }
 }
