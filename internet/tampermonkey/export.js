@@ -14,6 +14,7 @@
 // @match        https://www.teendreams.com/t4/**
 // @match        https://virtualtaboo.com/videos/**
 // @match        https://www.vixen.com/videos/**
+// @match        https://www.vixen.com/performers/**
 // @match        https://www.watch4beauty.com/updates/**
 // @match        https://www.x-art.com/videos/**
 // @match        https://www.wowgirlsblog.com/**
@@ -23,6 +24,7 @@
 // @match        https://passion-hd.com/video/**
 // @match        https://www.iafd.com/title.rme/id=**
 // @match        https://www.kellymadison.com/models/**
+// @match        https://www.twistys.com/scene/**
 // ==/UserScript==
 
 const root = 'https://127.0.0.1';
@@ -92,20 +94,20 @@ const formatURL = url => {
     return new URL(url, window.location.href).href
 }
 
-const executeAfterLoad = (test, supply) => {
+const executeAfterLoad = (test, supply, timeout = 5000) => {
     return new Promise((resolve, reject) => {
-        let count = 0;
+        let count = timeout / 500;
         const timer = setInterval(() => {
             if (test()) {
                 clearInterval(timer);
                 console.log('Timer done.')
                 resolve(supply())
-            } else if (count > 10) {
+            } else if (count <= 0) {
                 clearInterval(timer);
                 console.log('Timer timeout.')
                 reject()
             } else {
-                count++;
+                count--;
                 console.log(`Timer ${count}...`)
             }
         }, 500);
@@ -157,21 +159,33 @@ $(function () {
     }
 
     if (host === 'www.vixen.com') {
-        const btn = $('<button id="export-btn" style="margin-left: 10px;">Export</button>');
-        $('nav').append(btn);
-        $('#export-btn').attr('class', $('#export-btn').prev().attr('class'))
-        btn.on('click', () => doPutWork(parseVixenWork()));
+        if (window.location.pathname.startsWith('/videos/')) {
+            const btn = $('<button id="export-btn" style="margin-left: 10px;">Export</button>');
+            $('nav').append(btn);
+            $('#export-btn').attr('class', $('#export-btn').prev().attr('class'))
+            btn.on('click', () => doPutWork(parseVixenWork()));
+        } else if (window.location.pathname.startsWith('/performers/')) {
+            setInterval(() => {
+                $('div.Grid__Item-f0cb34-1').each((i, ele) => {
+                    if ($(ele).find('#my-export').length === 0) {
+                        const btn = $('<button id="my-export" style="position: absolute; top: 10px; right: 10px; color: orange; z-index: 9999; cursor: pointer">Export</button>');
+                        $(ele).append(btn);
+                        btn.on('click', () => doPutWork(parseVixenWork($(ele))));
+                    }
+                })
+            }, 500)
+        }
     }
 
     if (host === 'www.watch4beauty.com') {
-        const timer = setInterval(() => {
-            if ($('.third .top-menu-centered:first').length > 0) {
-                clearInterval(timer);
+        executeAfterLoad(
+            () => $('.third .top-menu-centered:first').length > 0,
+            () => {
                 const btn = $('<div class="top-menu-item"><a href="javascript:void(0)" style="font-weight: bolder">Export</a></div>');
                 $('.third .top-menu-centered:first').append(btn);
                 btn.on('click', async () => doPutWork(await parseWatch4BeautyWork()));
-            }
-        }, 500);
+            }, 10000
+        ).then(_ => _)
     }
 
     if (host === 'www.x-art.com') {
@@ -221,6 +235,22 @@ $(function () {
                 }
             })
         }, 500)
+    }
+
+    if (host === 'www.twistys.com') {
+        executeAfterLoad(
+            () => $('nav [href="/joinf"]').length > 0,
+            () => {
+                const joinBtn = $('nav [href="/joinf"]').parent();
+                console.log(joinBtn)
+                const exportBtn = joinBtn.clone();
+                exportBtn.remove('id');
+                exportBtn.find('a').attr('href', 'javascript:void(0)');
+                exportBtn.find('a').text('Export');
+                joinBtn.parent().parent().append(exportBtn);
+                exportBtn.on('click', () => doPutWork(parseTwistysWork()));
+            }, 10000
+        ).then(_ => _);
     }
 })
 
@@ -511,25 +541,44 @@ const parseVirtualTabooWork = () => {
 }
 
 
-const parseVixenWork = () => {
-    const props = JSON.parse($('script#__NEXT_DATA__').text())['props']['pageProps']
-    const posters = [...props['video']['images']['poster']]
-    const maxPoster = posters.reduce((max, obj) => (obj['width'] > max['width'] ? obj : max), posters[0])
-    return {
-        'title': props['title'],
-        'cover': props['structuredData']['thumbnailUrl'],
-        'cover2': maxPoster['highdpi'] ? maxPoster['highdpi']['double'] : maxPoster['src'],
-        'duration': props['structuredData']['duration'],
-        'releaseDate': formatDate($('[title="Release date"] span').text().trim()),
-        'producer': 'VIXEN',
-        'description': props['description'],
-        'images': props['galleryImages'].map(img => img['src']),
-        'trailer': null,
-        'source': window.location.href,
-        'actors': props['video']['modelsSlugged'].map(x => x['name']),
-        'directors': props['video']['directors'].map(x => x['name']),
-        'genres': null,
-        'series': null
+const parseVixenWork = card => {
+    if (!card) { // the whole page
+        const props = JSON.parse($('script#__NEXT_DATA__').text())['props']['pageProps']
+        const posters = [...props['video']['images']['poster']]
+        const maxPoster = posters.reduce((max, obj) => (obj['width'] > max['width'] ? obj : max), posters[0])
+        return {
+            'title': props['title'],
+            'cover': props['structuredData']['thumbnailUrl'],
+            'cover2': maxPoster['highdpi'] ? maxPoster['highdpi']['double'] : maxPoster['src'],
+            'duration': props['structuredData']['duration'],
+            'releaseDate': formatDate($('[title="Release date"] span').text().trim()),
+            'producer': 'VIXEN',
+            'description': props['description'],
+            'images': props['galleryImages'].map(img => img['src']),
+            'trailer': null,
+            'source': window.location.href,
+            'actors': props['video']['modelsSlugged'].map(x => x['name']),
+            'directors': props['video']['directors'].map(x => x['name']),
+            'genres': null,
+            'series': null
+        }
+    } else { // the card
+        return {
+            'title': $(card).find('a[data-test-component="TitleLink"]').text().trim(),
+            'cover': null,
+            'cover2': $(card).find('picture img').attr('src'),
+            'duration': null,
+            'releaseDate': formatDate($(card).find('div[data-test-component="ReleaseDateFormatted"]').text().trim()),
+            'producer': 'VIXEN',
+            'description': null,
+            'images': null,
+            'trailer': $(card).find('video').attr('src'),
+            'source': window.location.href,
+            'actors': $(card).find('div[data-test-component="Models"] a').map((i, ele) => $(ele).text().trim()).get(),
+            'directors': null,
+            'genres': null,
+            'series': null
+        }
     }
 }
 
@@ -608,21 +657,21 @@ const parseWowGirlsWork = () => {
 }
 
 
-const parseWowNetworkWork = element => {
+const parseWowNetworkWork = card => {
     return {
-        'title': $(element).find('a.title').text().trim(),
+        'title': $(card).find('a.title').text().trim(),
         'cover': null,
-        'cover2': $(element).find('.thumb img').attr('src'),
+        'cover2': $(card).find('.thumb img').attr('src'),
         'duration': null,
         'releaseDate': null,
         'producer': null,
         'description': null,
         'images': null,
         'trailer': null,
-        'source': [window.location.href, formatURL($(element).find('a.title').attr('href'))],
-        'actors': $(element).find('.models a').map((i, ele) => $(ele).text().trim()).get(),
+        'source': [window.location.href, formatURL($(card).find('a.title').attr('href'))],
+        'actors': $(card).find('.models a').map((i, ele) => $(ele).text().trim()).get(),
         'directors': null,
-        'genres': $(element).find('.genres a').map((i, ele) => $(ele).text().trim()).get(),
+        'genres': $(card).find('.genres a').map((i, ele) => $(ele).text().trim()).get(),
         'series': null
     };
 }
@@ -671,22 +720,43 @@ const parseIafdWork = () => {
 }
 
 
-const parseKellyMadisonWork = element => {
-    const sn = $(element).find('.card-footer-item:last').text().trim()
+const parseKellyMadisonWork = card => {
+    const sn = $(card).find('.card-footer-item:last').text().trim()
     return {
-        'title': $(element).find('p.title a').text().trim(),
+        'title': $(card).find('p.title a').text().trim(),
         'cover': null,
-        'cover2': $(element).find('.image img').attr('src'),
+        'cover2': $(card).find('.image img').attr('src'),
         'duration': null,
         'releaseDate': null,
         'producer': sn.startsWith('TF') ? 'TeenFidelity' : (sn.startsWith('PF') ? 'PornFidelity' : 'Unknown'),
         'description': null,
         'images': null,
-        'trailer': $(element).find('video').attr('src'),
-        'source': [window.location.href, formatURL($(element).find('p.title a').attr('href'))],
-        'actors': $(element).find('.subtitle.is-7 a').map((i, ele) => $(ele).text().trim()).get(),
+        'trailer': $(card).find('video').attr('src'),
+        'source': [window.location.href, formatURL($(card).find('p.title a').attr('href'))],
+        'actors': $(card).find('.subtitle.is-7 a').map((i, ele) => $(ele).text().trim()).get(),
         'directors': null,
         'genres': null,
         'series': null
     };
+}
+
+
+const parseTwistysWork = () => {
+    const info = JSON.parse($('script[type="application/ld+json"]').text().trim())
+    return {
+        'title': info['name'],
+        'cover': null,
+        'cover2': info['thumbnailUrl'],
+        'duration': null,
+        'releaseDate': info['uploadDate'],
+        'producer': 'Twistys',
+        'description': info['description'],
+        'images': null,
+        'trailer': info['contentUrl'],
+        'source': window.location.href,
+        'actors': $('h2.bUcZjY a').map((i, ele) => $(ele).text().trim()).get(),
+        'directors': null,
+        'genres': $('div.hBUrvM a').map((i, ele) => $(ele).text().trim()).get(),
+        'series': null
+    }
 }
