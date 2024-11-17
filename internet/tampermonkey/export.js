@@ -59,7 +59,7 @@ const doPutWork = work => {
                     console.log('conflict', result['data']);
                     const conflicts = []
                     result['data'].forEach(obj => conflicts.push(obj['field']));
-                    const msg = `Conflicts: ${conflicts.join(', ')}. Want to retry without conflicts?`
+                    const msg = `Conflicts: ${conflicts.join(', ')}.\nWant to retry without conflicts?`
                     if (confirm(msg)) {
                         conflicts.forEach(key => delete work[key]);
                         doPutWork(work);
@@ -92,6 +92,26 @@ const formatURL = url => {
     return new URL(url, window.location.href).href
 }
 
+const executeAfterLoad = (test, supply) => {
+    return new Promise((resolve, reject) => {
+        let count = 0;
+        const timer = setInterval(() => {
+            if (test()) {
+                clearInterval(timer);
+                console.log('Timer done.')
+                resolve(supply())
+            } else if (count > 10) {
+                clearInterval(timer);
+                console.log('Timer timeout.')
+                reject()
+            } else {
+                count++;
+                console.log(`Timer ${count}...`)
+            }
+        }, 500);
+    })
+}
+
 $(function () {
     const host = window.location.hostname;
 
@@ -103,37 +123,41 @@ $(function () {
 
     if (host === 'www.dmm.co.jp') {
         const btn = $('<div class="sub-nav"><a href="javascript:void(0)">导出</a></div>');
-        $('#mono-localnav').append(btn);
         const goodType = window.location.pathname.startsWith('/mono/dvd') ? 'dvd' : 'video';
+        if (goodType === 'dvd') {
+            $('#mono-localnav').append(btn);
+        } else {
+            $('#digital-localnav').append(btn);
+        }
         btn.on('click', async () => doPutWork(await parseFanzaWork(goodType)));
     }
 
     if (host === 'www.straplez.com' || host === 'www.metartx.com') {
-        const btn = $('<div class="btn btn-primary join-btn" style="position: fixed; right: 50px">导出</div>');
+        const btn = $('<div class="btn btn-primary join-btn" style="position: fixed; right: 50px">Export</div>');
         $('.navbar .va-m > div').append(btn);
-        btn.on('click', () => doPutWork(parseMetArtWork()));
+        btn.on('click', async () => doPutWork(await parseMetArtWork()));
     }
 
     if (host === 'nubilefilms.com') {
-        const btn = $('<li class="nav-item" style="margin-right: 20px"><span class="btn btn-cta btn-sm w-100 w-md-auto" style="cursor: pointer">导出</span></li>');
+        const btn = $('<li class="nav-item" style="margin-right: 20px"><span class="btn btn-cta btn-sm w-100 w-md-auto" style="cursor: pointer">Export</span></li>');
         $('.nav-right').prepend(btn);
         btn.on('click', () => doPutWork(parseNubileFilmsWork()));
     }
 
     if (host === 'www.teendreams.com') {
-        const btn = $('<li><button style="color: orange">导出</button></li>');
+        const btn = $('<li><button style="color: orange">Export</button></li>');
         $('#social-tabs > ul').append(btn);
         btn.on('click', () => doPutWork(parseTeenDreamsWork()));
     }
 
     if (host === 'virtualtaboo.com') {
-        const btn = $('<li><span class="btn btn-bold btn-green btn-join">导出</span></li>');
+        const btn = $('<li><span class="btn btn-bold btn-green btn-join">Export</span></li>');
         $('.pull-right .nav:last').append(btn);
         btn.on('click', () => doPutWork(parseVirtualTabooWork()));
     }
 
     if (host === 'www.vixen.com') {
-        const btn = $('<button id="export-btn" style="margin-left: 10px;">导出</button>');
+        const btn = $('<button id="export-btn" style="margin-left: 10px;">Export</button>');
         $('nav').append(btn);
         $('#export-btn').attr('class', $('#export-btn').prev().attr('class'))
         btn.on('click', () => doPutWork(parseVixenWork()));
@@ -143,21 +167,21 @@ $(function () {
         const timer = setInterval(() => {
             if ($('.third .top-menu-centered:first').length > 0) {
                 clearInterval(timer);
-                const btn = $('<div class="top-menu-item"><a href="javascript:void(0)" style="font-weight: bolder">导出</a></div>');
+                const btn = $('<div class="top-menu-item"><a href="javascript:void(0)" style="font-weight: bolder">Export</a></div>');
                 $('.third .top-menu-centered:first').append(btn);
-                btn.on('click', () => exportWatch4BeautyWork());
+                btn.on('click', async () => doPutWork(await parseWatch4BeautyWork()));
             }
         }, 500);
     }
 
     if (host === 'www.x-art.com') {
-        const btn = $('<li><button style="background-color: #fd01f1; margin-left: 20px">导出</button></li>');
+        const btn = $('<li><button style="background-color: #fd01f1; margin-left: 20px">Export</button></li>');
         $('.show-for-large-up.middle-menu').append(btn);
         btn.on('click', () => doPutWork(parseXArtWork()));
     }
 
     if (host === 'www.wowgirlsblog.com') {
-        const btn = $('<button style="position: fixed; top: 50px; right: 5px;">导出</button>');
+        const btn = $('<button style="position: fixed; top: 50px; right: 5px;">Export</button>');
         $('#page').append(btn);
         btn.on('click', () => doPutWork(parseWowGirlsWork()));
     }
@@ -166,7 +190,7 @@ $(function () {
         setInterval(() => {
             $('.cf_content_list div').each((i, ele) => {
                 if ($(ele).find('#my-export').length === 0 && $(ele).find('.preview').length > 0) {
-                    const btn = $('<button id="my-export" style="position: absolute; top: 10px; right: 10px; color: orange; z-index: 9999">导出</button>');
+                    const btn = $('<button id="my-export" style="position: absolute; top: 10px; right: 10px; color: orange; z-index: 9999">Export</button>');
                     $(ele).append(btn);
                     btn.on('click', () => doPutWork(parseWowNetworkWork($(ele))));
                 }
@@ -175,14 +199,14 @@ $(function () {
     }
 
     if (host === 'cum4k.com' || host === 'passion-hd.com') {
-        const btn = $('<button class="btn cta" style="position: fixed; top: 18px; right: 50px; z-index: 9999">导出</button>');
+        const btn = $('<button class="btn cta" style="position: fixed; top: 18px; right: 50px; z-index: 9999">Export</button>');
         $('body').append(btn);
         btn.on('click', () => doPutWork(parseWhaleWork()));
     }
 
     if (host === 'www.iafd.com') {
         $('#topadzone').remove();
-        const btn = $('<button class="btn btn-default" style="position: fixed; top: 8px; right: 20px; z-index: 9999">导出</button>');
+        const btn = $('<button class="btn btn-default" style="position: fixed; top: 8px; right: 20px; z-index: 9999">Export</button>');
         $('body').append(btn);
         btn.on('click', () => doPutWork(parseIafdWork()));
     }
@@ -191,7 +215,7 @@ $(function () {
         setInterval(() => {
             $('div.card.episode').each((i, ele) => {
                 if ($(ele).find('#my-export').length === 0) {
-                    const btn = $('<button id="my-export" style="position: absolute; top: 10px; left: 10px; color: orange; z-index: 9999; cursor: pointer">导出</button>');
+                    const btn = $('<button id="my-export" style="position: absolute; top: 10px; left: 10px; color: orange; z-index: 9999; cursor: pointer">Export</button>');
                     $(ele).append(btn);
                     btn.on('click', () => doPutWork(parseKellyMadisonWork($(ele))));
                 }
@@ -358,7 +382,7 @@ const parseFanzaWork = async goodType => {
 }
 
 
-const parseMetArtWork = () => {
+const parseMetArtWork = async () => {
     const info = {}
     $('ul[data-testid="movie-data"] li').each(function () {
         const key = $(this).find('span:first').text().trim();
@@ -378,6 +402,12 @@ const parseMetArtWork = () => {
         }
     }
 
+    document.querySelector('a.clickable').click()
+    const description = await executeAfterLoad(
+        () => $('a.clickable').text().trim() === 'Hide',
+        () => $('a.clickable').prev().text().trim()
+    )
+
     return {
         'title': $('ol.container li:last').text().trim(),
         'cover': $('.movie-details .panel-content img').attr('src'),
@@ -385,7 +415,7 @@ const parseMetArtWork = () => {
         'duration': parseInt($('meta[property="og:video:duration"]').attr('content')),
         'releaseDate': $('meta[property="og:video:release_date"]').attr('content').split('T')[0], // UTC-08:00
         'producer': $('.logo img').attr('alt'),
-        'description': null,
+        'description': description,
         'images': null,
         'trailer': null,
         'source': window.location.href,
@@ -460,10 +490,6 @@ const parseVirtualTabooWork = () => {
         }
     });
     const match = texts[1].match(/(\d+)\s*min/i);
-    if (!match) {
-        alert('无法匹配视频时长')
-        return false;
-    }
     const duration = parseInt(match[1], 10) * 60;
 
     return {
@@ -508,13 +534,11 @@ const parseVixenWork = () => {
 }
 
 
-const exportWatch4BeautyWork = () => {
+const parseWatch4BeautyWork = async () => {
     $('#action-item-05').click();
-    const timer = setInterval(() => {
-        if ($('#lightbox-info').length > 0) {
-            clearInterval(timer)
-            console.log('已打开作品详情页')
-
+    return await executeAfterLoad(
+        () => $('#lightbox-info').length > 0,
+        () => {
             const cover = $('#gallcover .loadable-data img').attr('src')
             const dateMatch = $('.issue-detail > .link').text().trim().match(/Published (\d{4})\.(\d{1,2})\.(\d{1,2})/);
             const year = dateMatch[1];
@@ -522,24 +546,24 @@ const exportWatch4BeautyWork = () => {
             const day = dateMatch[3].padStart(2, '0');
             const durationMatch = $('.issue-detail .hero:first').text().trim().match(/((\d{1,2}:)?\d{1,2}:\d{1,2}) FILM/)
 
-            doPutWork({
+            return {
                 'title': document.title.substring(5),
                 'cover': cover.includes('wide') ? cover.replace('cover-wide-2560.', 'cover-960.') : cover,
                 'cover2': cover.includes('wide') ? cover : $('video').attr('poster'),
                 'duration': durationMatch ? durationMatch[1] : null,
                 'releaseDate': `${year}-${month}-${day}`,
                 'producer': 'Watch4beauty',
-                'description': null,
-                'images': null,
+                'description': $('.gentext p').text().trim(),
+                'images': $('.photos.grid .loadable-data img').map((i, ele) => formatURL($(ele).attr('src'))).get(),
                 'trailer': null,
                 'source': window.location.href,
                 'actors': $('#lightbox-info p:eq(2) a').map((i, ele) => $(ele).text().trim()).get(),
                 'directors': null,
                 'genres': $('a.tag').map((i, ele) => $(ele).text().trim()).get(),
                 'series': null
-            })
+            }
         }
-    }, 500)
+    )
 }
 
 
