@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Export Work
 // @namespace    http://tampermonkey.net/
-// @version      0.0.4
+// @version      0.0.5
 // @description  Export work into database
 // @author       Kingen
 // @require      https://cdn.staticfile.org/jquery/3.4.1/jquery.min.js
@@ -28,6 +28,7 @@
 // @match        https://www.stripzvr.com/*
 // @match        https://vrporn.com/*/
 // @match        https://badoinkvr.com/vrpornvideo/*
+// @match        https://jav.land/ja/movie/*
 // ==/UserScript==
 
 const root = 'https://127.0.0.1';
@@ -136,6 +137,14 @@ $(function () {
             $('#digital-localnav').append(btn);
         }
         btn.on('click', async () => doPutWork(await parseFanzaWork(goodType)));
+    }
+
+    if (host === 'jav.land') {
+        window.debugger = () => {
+        };
+        const btn = $('<li><a href="javascript:void(0);">导出</a></li>');
+        $('.navbar-right').append(btn);
+        btn.on('click', async () => doPutWork(await parseJAVLandWork()));
     }
 
     if (host === 'www.straplez.com' || host === 'www.metartx.com') {
@@ -434,6 +443,48 @@ const parseFanzaWork = async goodType => {
         'genres': info['ジャンル：'].find('a').map((i, ele) => $(ele).text().trim()).get(),
         'series': info['シリーズ：'].find('a').map((i, ele) => $(ele).text().trim()).toArray(),
         ...parseImages()
+    }
+}
+
+
+const parseJAVLandWork = async () => {
+    const info = Object.fromEntries(
+        $('.videotextlist tr').get().map(ele => {
+            const key = $(ele).find('td:first').text().trim();
+            return [key, $(ele).find('td:last')]
+        })
+    )
+    const series = info['シリーズ:'].text().trim();
+
+    const fetchTrailer = async () => {
+        const vid = $('body script:first').text().match(/videoid = "([^"]+)"/)[1];
+        const formData = new FormData();
+        formData.append('vid', vid);
+        formData.append('action', 'get');
+        const response = await fetch('/ajax/ajax_get_play_sample.php', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
+        return $(data['videourl']).find('source:last').attr('src');
+    }
+
+    return {
+        'title': $('#com-alert').nextAll('script:first').text().match(/return "([^"]+)"/)[1],
+        'serialNumber': $('.img-responsive').attr('alt'),
+        'cover': null,
+        'cover2': $('.img-responsive').attr('src'),
+        'duration': info['収録時間:'].text().match(/(\d+)分/)[0],
+        'releaseDate': info['発売日:'].text().trim(),
+        'producer': info['メーカー:'].text().trim(),
+        'description': null,
+        'images': $('#waterfall a').map((i, ele) => $(ele).attr('href')).get(),
+        'trailer': await fetchTrailer(),
+        'source': window.location.href,
+        'actors': info['出演者:'].find('a').map((i, ele) => $(ele).text().trim()).get(),
+        'directors': info['監督:'].find('a').map((i, ele) => $(ele).text().trim()).get(),
+        'genres': info['ジャンル:'].find('a').map((i, ele) => $(ele).text().trim()).get(),
+        'series': series === '---' ? null : series,
     }
 }
 
@@ -870,4 +921,4 @@ const parseBadoinkvrWork = () => {
         'genres': $('.video-tag').map((i, ele) => $(ele).text().trim()).get(),
         'series': null
     }
-};
+}
