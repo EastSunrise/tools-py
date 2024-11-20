@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Export Work
 // @namespace    http://tampermonkey.net/
-// @version      0.0.3
+// @version      0.0.4
 // @description  Export work into database
 // @author       Kingen
 // @require      https://cdn.staticfile.org/jquery/3.4.1/jquery.min.js
@@ -27,6 +27,7 @@
 // @match        https://www.twistys.com/scene/*
 // @match        https://www.stripzvr.com/*
 // @match        https://vrporn.com/*/
+// @match        https://badoinkvr.com/vrpornvideo/*
 // ==/UserScript==
 
 const root = 'https://127.0.0.1';
@@ -270,6 +271,13 @@ $(function () {
         btn.attr('href', 'javascript:void(0)');
         btn.text('Export')
         btn.on('click', async () => doPutWork(await parseVRPornWork()));
+    }
+
+    if (host === 'badoinkvr.com') {
+        $('#joinPromoBanner').remove();
+        const btn = $('<span class="button" style="position: fixed; right: 30px; top: 50px; cursor: pointer">Export</span>');
+        $('.navigation__multiline-menu--bottom').append(btn);
+        btn.on('click', () => doPutWork(parseBadoinkvrWork()));
     }
 })
 
@@ -839,3 +847,27 @@ const parseVRPornWork = async () => {
         'series': null
     }
 }
+
+
+const parseBadoinkvrWork = () => {
+    const info = JSON.parse($('script[type="application/ld+json"]:last').text().trim())
+    const cover = $('#video-preview-hover').attr('poster')
+    const count = parseInt($('.gallery-zip-info').text().match(/(\d+) photos/)[1])
+
+    return {
+        'title': info['name'],
+        'cover': null,
+        'cover2': cover,
+        'duration': $('[itemprop="duration"]').attr('content'),
+        'releaseDate': $('[itemprop="uploadDate"]').attr('content').split('T')[0],
+        'producer': 'BaDoinkVR',
+        'description': $('[itemprop="description"]').attr('content'),
+        'images': Array.from({length: count}, (_, i) => cover.replace('.jpg', `_${i + 1}.jpg`)),
+        'trailer': info['contentUrl'],
+        'source': window.location.href,
+        'actors': $('.video-actor-link').map((i, ele) => $(ele).text().trim()).get(),
+        'directors': null,
+        'genres': $('.video-tag').map((i, ele) => $(ele).text().trim()).get(),
+        'series': null
+    }
+};
