@@ -33,6 +33,7 @@
 
 const root = 'https://127.0.0.1';
 const rootApi = root + '/study/api/v1';
+const detailUri = root + '/study/work/detail/';
 
 /**
  * Does the PUT request to save work to database
@@ -53,8 +54,10 @@ const doPutWork = work => {
             const text = response.status === 200 ? 'Updated' : 'Created';
             response.json().then(
                 result => {
-                    console.log('success', result);
-                    alert(`${text}: ${result['id']}`);
+                    console.log(text, result);
+                    if (confirm(`${text}. Want to open the page?`)) {
+                        window.open(detailUri + result['id']);
+                    }
                 }
             )
         } else if (response.status === 204) {
@@ -68,6 +71,9 @@ const doPutWork = work => {
                     const msg = `Conflicts: ${conflicts.join(', ')}.\nWant to retry without conflicts?`
                     if (confirm(msg)) {
                         conflicts.forEach(key => delete work[key]);
+                        if (!work['title']) {
+                            work['title'] = work['serialNumber'];
+                        }
                         doPutWork(work);
                     }
                 }
@@ -373,10 +379,11 @@ const parseFanzaWork = async goodType => {
 
     const parseDescription = () => {
         if (goodType === 'dvd') {
-            return $('p.mg-b20').text().trim()
+            return $('.mg-b20 p.mg-b20').text().trim()
         }
         if (goodType === 'video') {
-            return $('meta[name="description"]').attr('content').trim();
+            const data = JSON.parse($('script[type="application/ld+json"]').text())
+            return data['description']
         }
         return null;
     }
@@ -385,8 +392,11 @@ const parseFanzaWork = async goodType => {
         const frame = await $.get(url);
         const src = $(frame).attr('src');
         const data = await $.get(src);
-        const match = data.match(/"src":\s*"([^"]+)"/);
-        return new URL(match[1], window.location.href).href;
+        const args = JSON.parse(data.match(/const args = (\{[^;]+});/)[1]);
+        console.log(args)
+        const trailer = args['bitrates'][0]['src']
+        console.log(trailer)
+        return formatURL(trailer);
     }
 
     const parseTrailer = async () => {
