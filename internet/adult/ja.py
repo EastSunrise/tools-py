@@ -226,14 +226,14 @@ will_producers = [
     WillProducer('https://premium-beauty.com/top', name='Premium'),
     WillProducer('https://kirakira-av.com/top', name='kira☆kira'),
     WillProducer('https://oppai-av.com/top', name='OPPAI'),
-    WillProducer('https://bibian-av.com/top', name='Bibian'),
+    WillProducer('https://bibian-av.com/top', name='ビビアン'),
     WillProducer('https://madonna-av.com/top', name='Madonna'),
     BaseWillProducer('https://hhh-av.com/top', name='HHH'),
     WillProducer('https://attackers.net/top', name='Attackers'),
     WillProducer('https://rookie-av.jp/top', 'Rookie'),
     WillProducer('https://av-opera.jp/top', name='OPERA'),
     WillProducer('https://dasdas.jp/top', name='Das!'),
-    WillProducer('https://wanz-factory.com/top', name='Wanz-Factory'),
+    WillProducer('https://wanz-factory.com/top', name='Wanz Factory'),
     WillProducer('https://befreebe.com/top', name='BeFree'),
     WillProducer('https://kawaiikawaii.jp/top', name='kawaii*'),
     WillProducer('https://bi-av.com/top', name='痴女ヘブン'),
@@ -251,7 +251,7 @@ will_producers = [
 class Caribbean(OrderedAdultSite, JaActorSite):
 
     def __init__(self):
-        super().__init__('https://www.caribbeancom.com/index2.htm', name='caribbean', encoding='EUC-JP')
+        super().__init__('https://www.caribbeancom.com/index2.htm', name='カリビアンコム', encoding='EUC-JP')
 
     def list_actors(self) -> List[dict]:
         actors = []
@@ -313,7 +313,7 @@ class Caribbean(OrderedAdultSite, JaActorSite):
 
 class OnePondo(OrderedAdultSite, JaActorSite):
     def __init__(self):
-        super().__init__('https://www.1pondo.tv/', name='1pondo')
+        super().__init__('https://www.1pondo.tv/', name='一本道')
 
     def list_actors(self) -> List[dict]:
         return [a for g in self.get_json('/dyn/phpauto/actresses.json').values() for arr in g.values() for a in arr]
@@ -365,7 +365,7 @@ class OnePondo(OrderedAdultSite, JaActorSite):
 
 class Kin8tengoku(OrderedAdultSite):
     def __init__(self):
-        super().__init__('https://www.kin8tengoku.com/index.html', name='kin8tengoku', encoding='EUC-JP')
+        super().__init__('https://www.kin8tengoku.com/index.html', name='金髪天國', encoding='EUC-JP')
 
     def list_works_between(self, start: date, stop: date) -> List[dict]:
         works, page = [], 1
@@ -786,7 +786,7 @@ class Indies(MonthlyAdultSite, JaActorSite):
 
 class Planetplus(MonthlyAdultSite):
     def __init__(self):
-        super().__init__('http://planetplus.jp/wp01/', YearMonth(2008, 6), name='planetplus')
+        super().__init__('http://planetplus.jp/wp01/', YearMonth(2008, 6), name='Planetplus')
         self.__tags = {}
 
     def _list_monthly(self, ym: YearMonth) -> List[dict]:
@@ -948,7 +948,7 @@ class Maxing(OrderedAdultSite, JaActorSite):
 
 class CrystalEizou(MonthlyAdultSite):
     def __init__(self):
-        super().__init__('https://www.crystal-eizou.jp/info/index.html', YearMonth(2014, 5), name='crystal-eizou')
+        super().__init__('https://www.crystal-eizou.jp/info/index.html', YearMonth(2014, 5), name='クリスタル映像')
 
     def _list_monthly(self, ym: YearMonth) -> List[dict]:
         path = '/info/archive/%04d_%02d.html' % (ym.year, ym.month)
@@ -989,24 +989,19 @@ class KmProduce(MonthlyAdultSite, JaActorSite):
         super().__init__('https://www.km-produce.com/', YearMonth(2012, 12), name='K.M.Produce')
 
     def list_actors(self) -> List[dict]:
-        regexp = re.compile('(\\d{3}cm)/(B\\d{2,3})-([A-Z])?/(W\\d{2})/(H\\d{2,3})')
         soup = self.get_soup('/girls')
         actors = []
         for div in soup.select('.act'):
             img = div.select_one('img')
-            matcher = regexp.fullmatch(div.select_one('.size').text.strip())
             actors.append({
                 'name': img['alt'],
                 'image': img['src'],
-                'height': matcher.group(1),
-                'measurements': f'{matcher.group(2)}({matcher.group(3) or "-"})/{matcher.group(4)}/{matcher.group(5)}',
                 'source': urljoin(self.root_uri + '/girls', div.select_one('a')['href'])
             })
         return actors
 
     def refactor_actor(self, actor: dict) -> None:
         super().refactor_actor(actor)
-        actor['height'] = int(actor['height'].rstrip('cm'))
 
     def _list_monthly(self, ym: YearMonth) -> List[dict]:
         soup = self.get_soup('/works', {'archive': f'{ym.year}年{ym.month}月'}, cache=ym < YearMonth.now())
@@ -1049,7 +1044,7 @@ class KmProduce(MonthlyAdultSite, JaActorSite):
 class AliceJapan(MonthlyAdultSite, JaActorSite):
 
     def __init__(self):
-        super().__init__('https://www.alicejapan.co.jp/top.php', YearMonth(1984, 5), name='alice-japan',
+        super().__init__('https://www.alicejapan.co.jp/top.php', YearMonth(1984, 5), name='アリスJAPAN',
                          headers={'Cookie': 'ageverification=t'})
 
     def _list_monthly(self, ym: YearMonth) -> List[dict]:
@@ -1119,7 +1114,7 @@ class AliceJapan(MonthlyAdultSite, JaActorSite):
 jav_producers = [
     FalenoProducer('https://faleno.jp/top/', 'Faleno', prefix='/top'),
     FalenoProducer('https://dahlia-av.jp/', 'DAHLIA'),
-    # SODPrime(),
+    SODPrime(),
     Prestige(),
     Venus(),
     Indies(),
