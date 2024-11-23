@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Export Data
 // @namespace    http://tampermonkey.net/
-// @version      0.1.0
+// @version      0.1.1
 // @description  Parse data and export into database
 // @author       Kingen
 // @require      https://cdn.staticfile.org/jquery/3.4.1/jquery.min.js
@@ -30,6 +30,7 @@
 // @match        https://badoinkvr.com/vrpornvideo/*
 // @match        https://jav.land/ja/movie/*
 // @match        https://everia.club/*
+// @match        https://erotok.com/archives/*
 // ==/UserScript==
 
 const root = 'https://127.0.0.1';
@@ -89,7 +90,7 @@ const doPutWork = work => {
 }
 
 let cachedName = null;
-const doPostImages = (actor = {'name': null, 'images': []}) => {
+const doPostImages = (actor = {'name': undefined, 'images': []}) => {
     if (!actor) {
         return;
     }
@@ -134,7 +135,16 @@ const doPostImages = (actor = {'name': null, 'images': []}) => {
 
 const showMessage = (message, timeout = 3000) => {
     if ($('#my-message-dialog').length === 0) {
-        const dialog = $('<div id="my-message-dialog" style="position: fixed; top: 30px; left: 30px; background-color: #fff; padding: 10px; border: 1px solid #000;"></div>');
+        const dialog = $('<div id="my-message-dialog"></div>');
+        dialog.css({
+            position: 'fixed',
+            top: '30px',
+            left: '30px',
+            backgroundColor: '#fff',
+            padding: '10px',
+            border: '1px solid #000',
+            zIndex: 9999
+        })
         $('body').append(dialog)
     }
     const dialog = $('#my-message-dialog');
@@ -177,6 +187,10 @@ const executeAfterLoad = (test, supply, timeout = 5000) => {
     })
 }
 
+
+/**
+ * Exports works.
+ */
 $(function () {
     const host = window.location.hostname;
 
@@ -335,7 +349,7 @@ $(function () {
 
     if (host === 'vrporn.com') {
         const btn = $('#go-premium-new a');
-        btn.attr('href', 'javascript:void(0)');
+        btn.attr('href', 'javascript:void(0);');
         btn.text('Export')
         btn.on('click', async () => doPutWork(await parseVRPornWork()));
     }
@@ -345,19 +359,6 @@ $(function () {
         const btn = $('<span class="button" style="position: fixed; right: 30px; top: 50px; cursor: pointer">Export</span>');
         $('.navigation__multiline-menu--bottom').append(btn);
         btn.on('click', () => doPutWork(parseBadoinkvrWork()));
-    }
-
-    if (host === 'everia.club') {
-        setInterval(() => {
-            $('body > div').each((i, ele) => {
-                const eid = $(ele).attr('id');
-                if (eid !== 'outer-wrap' && eid !== 'my-message-dialog') {
-                    $(ele).remove();
-                }
-            })
-        }, 500);
-
-        exportEveriaImages()
     }
 })
 
@@ -380,7 +381,6 @@ const parseDoubanWork = () => {
         'series': null
     }
 }
-
 
 const parseFanzaWork = async goodType => {
     const formatSn = sn => {
@@ -521,7 +521,6 @@ const parseFanzaWork = async goodType => {
     }
 }
 
-
 const parseJAVLandWork = async () => {
     const info = Object.fromEntries(
         $('.videotextlist tr').get().map(ele => {
@@ -562,7 +561,6 @@ const parseJAVLandWork = async () => {
         'series': series === '---' ? null : series,
     }
 }
-
 
 const parseMetArtWork = async () => {
     const info = {}
@@ -608,7 +606,6 @@ const parseMetArtWork = async () => {
     }
 }
 
-
 const parseNubileFilmsWork = () => {
     const desc = $('.content-pane-description')
     let description;
@@ -636,7 +633,6 @@ const parseNubileFilmsWork = () => {
     }
 }
 
-
 const parseTeenDreamsWork = () => {
     const script = $('.innerOld > script').text()
     return {
@@ -656,7 +652,6 @@ const parseTeenDreamsWork = () => {
         'series': null
     }
 }
-
 
 const parseVirtualTabooWork = () => {
     const wrapper = $('div.video-detail')
@@ -691,7 +686,6 @@ const parseVirtualTabooWork = () => {
         'series': null
     }
 }
-
 
 const parseVixenWork = card => {
     if (!card) { // the whole page
@@ -734,7 +728,6 @@ const parseVixenWork = card => {
     }
 }
 
-
 const parseWatch4BeautyWork = async () => {
     $('#action-item-05').click();
     return await executeAfterLoad(
@@ -767,7 +760,6 @@ const parseWatch4BeautyWork = async () => {
     )
 }
 
-
 const parseXArtWork = () => {
     return {
         'title': $('.info.row h1').text().trim(),
@@ -786,7 +778,6 @@ const parseXArtWork = () => {
         'series': null
     }
 }
-
 
 const parseWowGirlsWork = () => {
     const info = JSON.parse($('.flowplayer').attr('data-item'))
@@ -808,7 +799,6 @@ const parseWowGirlsWork = () => {
     }
 }
 
-
 const parseWowNetworkWork = card => {
     return {
         'title': $(card).find('a.title').text().trim(),
@@ -828,7 +818,6 @@ const parseWowNetworkWork = card => {
     };
 }
 
-
 const parseWhaleWork = () => {
     return {
         'title': $('h1.leading-tight').text().trim(),
@@ -847,7 +836,6 @@ const parseWhaleWork = () => {
         'series': null
     }
 }
-
 
 const parseIafdWork = () => {
     const headers = $('p.bioheading').map((i, ele) => $(ele).text().trim()).get()
@@ -871,7 +859,6 @@ const parseIafdWork = () => {
     }
 }
 
-
 const parseKellyMadisonWork = card => {
     const sn = $(card).find('.card-footer-item:last').text().trim()
     return {
@@ -892,7 +879,6 @@ const parseKellyMadisonWork = card => {
     };
 }
 
-
 const parseTwistysWork = () => {
     const info = JSON.parse($('script[type="application/ld+json"]').text().trim())
     return {
@@ -912,7 +898,6 @@ const parseTwistysWork = () => {
         'series': null
     }
 }
-
 
 const parseStripzvrWork = () => {
     const data = JSON.parse($('script[type="application/ld+json"]').text().trim())
@@ -939,7 +924,6 @@ const parseStripzvrWork = () => {
         'series': null
     }
 }
-
 
 const parseVRPornWork = async () => {
     const info = JSON.parse($('script[type="application/ld+json"]:first').text().trim())
@@ -974,7 +958,6 @@ const parseVRPornWork = async () => {
     }
 }
 
-
 const parseBadoinkvrWork = () => {
     const info = JSON.parse($('script[type="application/ld+json"]:last').text().trim())
     const cover = $('#video-preview-hover').attr('poster')
@@ -999,25 +982,68 @@ const parseBadoinkvrWork = () => {
 }
 
 
-const exportEveriaImages = () => {
-    const btn = $('<li style="position: fixed; right: 30px;"><a href="javascript:void(0);">Export</a></li>');
-    $('#menu-menu').append(btn);
-    const elements = $('.wp-block-gallery .wp-block-image');
+/**
+ * Exports images.
+ */
+$(function () {
+    const host = window.location.hostname;
 
-    btn.on('click', e => {
-        const images = elements.map((i, ele) => $(ele).find('img').attr('src')).get();
-        doPostImages({name: null, images: images})
-        e.stopPropagation();
-        return false;
-    })
+    if (host === 'everia.club') {
+        window.open = () => null;
+        setInterval(() => {
+            $('body > div').each((i, ele) => {
+                const eid = $(ele).attr('id');
+                if (eid !== 'outer-wrap' && eid !== 'my-message-dialog') {
+                    $(ele).remove();
+                }
+            })
+        }, 500);
 
-    elements.each((i, ele) => {
-        const tag = $('<button style="position: absolute; color: orange; cursor: pointer;">Export</button>');
-        $(ele).prepend(tag);
-        tag.on('click', e => {
-            doPostImages({name: null, images: [$(ele).find('img').attr('src')]})
-            e.stopPropagation();
-            return false;
+        const btn = $('<li style="position: fixed; right: 30px;"><a href="javascript:void(0);">Export</a></li>');
+        $('#menu-menu').append(btn);
+
+        let elements = $('.wp-block-gallery .wp-block-image');
+        if (elements.length === 0) {
+            elements = $('article a.oceanwp-lightbox');
+            elements.each((i, ele) => $(ele).attr('href', 'javascript:void(0);'));
+        }
+        btn.on('click', () => {
+            const images = elements.map((i, ele) => $(ele).find('img').attr('src')).get();
+            return doPostImages({images: images});
         });
+
+        elements.each((i, ele) => {
+            const tag = createTagForImage(ele);
+            tag.on('click', () => doPostImages({images: [$(ele).find('img').attr('src')]}));
+        })
+    }
+
+    if (host === 'erotok.com') {
+        const name = $('td:contains("名前")').next('td').text().trim()
+        $('#index_id7').nextAll('p').find('a').each((i, ele) => {
+            $(ele).attr('href', 'javascript:void(0);');
+            const tag = createTagForImage(ele);
+            tag.on('click', () => doPostImages({name: name, images: [$(ele).find('img').attr('src')]}));
+        })
+    }
+})
+
+const createTagForImage = container => {
+    const tag = $('<button>Export</button>');
+    $(container).append(tag);
+    $(container).css({
+        position: 'relative',
+        display: 'inline-block',
     })
+    $(tag).css({
+        position: 'absolute',
+        top: '20px',
+        right: '10px',
+        borderRadius: "5px",
+        backgroundColor: "#4CAF50",
+        color: "white",
+        cursor: 'pointer',
+        zIndex: '9999'
+    })
+    return tag;
 }
