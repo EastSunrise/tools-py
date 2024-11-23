@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Export Work
+// @name         Export Data
 // @namespace    http://tampermonkey.net/
-// @version      0.0.5
-// @description  Export work into database
+// @version      0.1.0
+// @description  Parse data and export into database
 // @author       Kingen
 // @require      https://cdn.staticfile.org/jquery/3.4.1/jquery.min.js
 // @match        https://movie.douban.com/subject/*
@@ -29,15 +29,13 @@
 // @match        https://vrporn.com/*/
 // @match        https://badoinkvr.com/vrpornvideo/*
 // @match        https://jav.land/ja/movie/*
+// @match        https://everia.club/*
 // ==/UserScript==
 
 const root = 'https://127.0.0.1';
 const rootApi = root + '/study/api/v1';
-const detailUri = root + '/study/work/detail/';
+const workDetailUri = root + '/study/work/detail/';
 
-/**
- * Does the PUT request to save work to database
- */
 const doPutWork = work => {
     if (!work) {
         return;
@@ -45,10 +43,10 @@ const doPutWork = work => {
     console.log('save work', work);
     fetch(`${rootApi}/works/none?merge=1`, {
         method: 'PUT',
+        body: JSON.stringify(work),
         headers: {
             'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(work)
+        }
     }).then(response => {
         if (response.status === 200 || response.status === 201) {
             const text = response.status === 200 ? 'Updated' : 'Created';
@@ -56,12 +54,12 @@ const doPutWork = work => {
                 result => {
                     console.log(text, result);
                     if (confirm(`${text}. Want to open the page?`)) {
-                        window.open(detailUri + result['id']);
+                        window.open(workDetailUri + result['id']);
                     }
                 }
             )
         } else if (response.status === 204) {
-            alert('Ignored')
+            showMessage('Ignored')
         } else if (response.status === 409) {
             response.json().then(
                 result => {
@@ -90,9 +88,63 @@ const doPutWork = work => {
     })
 }
 
-/**
- * Formats English date string to YYYY-MM-DD
- */
+let cachedName = null;
+const doPostImages = (actor = {'name': null, 'images': []}) => {
+    if (!actor) {
+        return;
+    }
+    let {name, images} = actor;
+    if (!images || images.length === 0) {
+        return;
+    }
+    if (!name) {
+        if (cachedName) {
+            name = cachedName;
+        } else {
+            const input = prompt('Cannot find name. Please input manually.');
+            if (input === null || input === '') {
+                showMessage('Cancelled!');
+                return false;
+            }
+            name = input;
+            cachedName = name;
+        }
+    }
+
+    console.log(`save images of ${name}`, actor);
+    const formData = new FormData();
+    images.forEach(x => formData.append('urls', x))
+    fetch(`${rootApi}/actors/${name}/images`, {
+        method: 'POST',
+        body: formData,
+    }).then(response => {
+        if (response.status === 200) {
+            showMessage('Saved')
+        } else {
+            response.text().then(text => {
+                console.log('failed to save', text);
+                alert('Failure: ' + text);
+            })
+        }
+    }).catch(reason => {
+        console.log('exception to save', reason);
+        alert(reason)
+    })
+}
+
+const showMessage = (message, timeout = 3000) => {
+    if ($('#my-message-dialog').length === 0) {
+        const dialog = $('<div id="my-message-dialog" style="position: fixed; top: 30px; left: 30px; background-color: #fff; padding: 10px; border: 1px solid #000;"></div>');
+        $('body').append(dialog)
+    }
+    const dialog = $('#my-message-dialog');
+    dialog.text(message).fadeIn();
+
+    if (timeout > 0) {
+        setTimeout(() => dialog.fadeOut(), timeout);
+    }
+}
+
 const formatDate = str => {
     const date = new Date(str);
     const year = date.getFullYear();
@@ -135,7 +187,7 @@ $(function () {
     }
 
     if (host === 'www.dmm.co.jp') {
-        const btn = $('<div class="sub-nav"><a href="javascript:void(0)">导出</a></div>');
+        const btn = $('<div class="sub-nav"><a href="javascript:void(0);">导出</a></div>');
         const goodType = window.location.pathname.startsWith('/mono/dvd') ? 'dvd' : 'video';
         if (goodType === 'dvd') {
             $('#mono-localnav').append(btn);
@@ -294,6 +346,19 @@ $(function () {
         $('.navigation__multiline-menu--bottom').append(btn);
         btn.on('click', () => doPutWork(parseBadoinkvrWork()));
     }
+
+    if (host === 'everia.club') {
+        setInterval(() => {
+            $('body > div').each((i, ele) => {
+                const eid = $(ele).attr('id');
+                if (eid !== 'outer-wrap' && eid !== 'my-message-dialog') {
+                    $(ele).remove();
+                }
+            })
+        }, 500);
+
+        exportEveriaImages()
+    }
 })
 
 const parseDoubanWork = () => {
@@ -323,7 +388,7 @@ const parseFanzaWork = async goodType => {
         if (!match) {
             const input = prompt('Cannot format serial number. Please input manually.', sn.toUpperCase());
             if (input === null || input === '') {
-                alert('Cannot format serial number. Cancelled!');
+                showMessage('Cancelled!');
                 return false;
             }
             return input;
@@ -931,4 +996,28 @@ const parseBadoinkvrWork = () => {
         'genres': $('.video-tag').map((i, ele) => $(ele).text().trim()).get(),
         'series': null
     }
+}
+
+
+const exportEveriaImages = () => {
+    const btn = $('<li style="position: fixed; right: 30px;"><a href="javascript:void(0);">Export</a></li>');
+    $('#menu-menu').append(btn);
+    const elements = $('.wp-block-gallery .wp-block-image');
+
+    btn.on('click', e => {
+        const images = elements.map((i, ele) => $(ele).find('img').attr('src')).get();
+        doPostImages({name: null, images: images})
+        e.stopPropagation();
+        return false;
+    })
+
+    elements.each((i, ele) => {
+        const tag = $('<button style="position: absolute; color: orange; cursor: pointer;">Export</button>');
+        $(ele).prepend(tag);
+        tag.on('click', e => {
+            doPostImages({name: null, images: [$(ele).find('img').attr('src')]})
+            e.stopPropagation();
+            return false;
+        });
+    })
 }
