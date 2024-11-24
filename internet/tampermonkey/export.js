@@ -31,6 +31,7 @@
 // @match        https://jav.land/ja/movie/*
 // @match        https://everia.club/*
 // @match        https://erotok.com/archives/*
+// @match        https://japanesebeauties.one/*
 // ==/UserScript==
 
 const root = 'https://127.0.0.1';
@@ -1021,9 +1022,22 @@ $(function () {
     if (host === 'erotok.com') {
         const name = $('td:contains("名前")').next('td').text().trim()
         $('#index_id7').nextAll('p').find('a').each((i, ele) => {
+            const image = formatURL($(ele).attr('href'));
             $(ele).attr('href', 'javascript:void(0);');
             const tag = createTagForImage(ele);
-            tag.on('click', () => doPostImages({name: name, images: [$(ele).find('img').attr('src')]}));
+            tag.on('click', () => doPostImages({name: name, images: [image]}));
+        })
+    }
+
+    if (host === 'japanesebeauties.one') {
+        $('.galleryup a').each((i, ele) => {
+            if ($(ele).find('.mp4adsoverlay').length > 0) {
+                return;
+            }
+            const image = formatURL($(ele).attr('href'));
+            $(ele).attr('href', 'javascript:void(0);');
+            const tag = createTagForImage(ele);
+            tag.on('click', () => doPostImages({images: [image]}));
         })
     }
 })
