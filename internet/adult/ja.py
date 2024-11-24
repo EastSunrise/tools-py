@@ -351,8 +351,7 @@ class OnePondo(OrderedAdultSite, JaActorSite):
         work['series'] = OptionalValue(work['Series']).strip().get()
         work['description'] = work['Desc'].strip()
         work['genres'] = work['UCNAME']
-        work['trailer'] = sorted(work['SampleFiles'], key=lambda x: x['FileSize'])[-1][
-            'URL'] if 'SampleFiles' in work else None
+        work['trailer'] = sorted(work['SampleFiles'], key=lambda x: x['FileSize'])[-1]['URL'] if 'SampleFiles' in work else None
         if work['Gallery']:
             try:
                 images = self.get_json(f'/dyn/dla/json/movie_gallery/{work["MovieID"]}.json', cache=True)['Rows']
@@ -447,7 +446,7 @@ class FalenoProducer(AdultSite):
         infos = soup.select('.box_works01_list p')
         sources = []
         for tag in soup.select('#bottom-bar a'):
-            if tag.text.strip() == 'FANZAで購入' and 'href' in tag:
+            if tag.text.strip() == 'FANZAで購入' and tag.has_key('href'):
                 sources.append(tag['href'])
                 break
         return {
