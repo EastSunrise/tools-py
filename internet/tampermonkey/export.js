@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Export Data
 // @namespace    http://tampermonkey.net/
-// @version      0.1.1
+// @version      0.1.2
 // @description  Parse data and export into database
 // @author       Kingen
 // @require      https://cdn.staticfile.org/jquery/3.4.1/jquery.min.js
@@ -32,6 +32,7 @@
 // @match        https://everia.club/*
 // @match        https://erotok.com/archives/*
 // @match        https://japanesebeauties.one/*
+// @match        https://geinou-nude.com/*/
 // ==/UserScript==
 
 const root = 'https://127.0.0.1';
@@ -1038,6 +1039,19 @@ $(function () {
             $(ele).attr('href', 'javascript:void(0);');
             const tag = createTagForImage(ele);
             tag.on('click', () => doPostImages({images: [image]}));
+        })
+    }
+
+    if (host === 'geinou-nude.com') {
+        const name = window.location.pathname.split('/')[1];
+        $('p a[data-wpel-link="internal"]').each((i, ele) => {
+            if ($(ele).find('img').length === 0) {
+                return;
+            }
+            const image = formatURL($(ele).attr('href'));
+            $(ele).attr('href', 'javascript:void(0);');
+            const tag = createTagForImage(ele);
+            tag.on('click', () => doPostImages({name: name, images: [image]}));
         })
     }
 })
